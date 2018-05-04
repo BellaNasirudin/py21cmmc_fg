@@ -15,46 +15,59 @@ from astropy import units as un
 import itertools as it
 from scipy.interpolate import RegularGridInterpolator
 from scipy.stats import chisquare
+from py21cmmc.likelihood import LikelihoodBase
+from CosmoHammer.ChainContext import ChainContext
+    
 
-class ForegroundLikelihood:#(LikelihoodBase):
+class ForegroundLikelihood(LikelihoodBase):
     
-    def __init__(self, ctx): ##not supposed to be here, delete when combined with 21cmmc
+    def __init__(self, datafile, **kwargs): ##not supposed to be here, delete when combined with 21cmmc
         
-        PS_mK2Mpc3, chi_sq = self.compute_likelihood(ctx)
+        super().__init__(**kwargs)
+        self.datafile = datafile
+#        PS_mK2Mpc3, chi_sq = self.compute_likelihood(ctx)
         
-        ctx.add("observed_power", PS_mK2Mpc3)
-        print PS_mK2Mpc3
+#        ctx.add("observed_power", PS_mK2Mpc3)
+#        print PS_mK2Mpc3
     
-    def compute_likelihood(self, ctx):
         
+    def setup(self):
+        print("read in data")
+        data = np.genfromtxt(self.datafile)
+
+        self.k = data[:,0]
+        self.power = data[:,1]
+        self.uncertainty = data[:,2]
+
+    def computeLikelihood(self, ctx):
+        
+        PS_mK2Mpc3, k_Mpc = self.computePower(ctx)
+
+        # ctx.add("power_spectrum", PS_mK2Mpc3)
+        ## FIND CHI SQUARE OF PS!!!
+        #this is a bit too simple. Firstly, you need to make sure that the k values line up. secondly, you need uncertainties.
+        return -0.5 * (self.power - PS_mK2Mpc3)**2 / self.uncertainty**2
+        
+    def computePower(self, ctx):
         ## Read in data from ctx
         new_lightcone = ctx.get("foreground_lightcone")
         frequencies = ctx.get("frequencies")
         boxsize = ctx.get("boxsize")
         sky_size = ctx.get("sky_size")
         
-        print "Computing likelihood"
+        # print "Computing likelihood"
         
         ## CONSIDER MOVING INTERPOLATING LINERALY SPACED FREQUENCY HERE INSTEAD
         
         visibility, coords, weights = self.add_instrument(new_lightcone,frequencies, sky_size)
         
         ## Find the 1D Power Spectrum of the visibility
-        PS_mK2Mpc3, k_Mpc = self.power_spectrum(visibility, coords, weights, frequencies, bins = 50)
-        
-        ctx.add("power_spectrum", PS_mK2Mpc3)
-        ## FIND CHI SQUARE OF PS!!!
-        chi_sq, p_value = self.chi_square(PS_mK2Mpc3)
-        
-        return PS_mK2Mpc3, chi_sq
-        
-    def setup():
-        print("read in data")
+        return self.power_spectrum(visibility, coords, weights, frequencies, bins = 50)
         
         
     def add_instrument(self, lightcone, frequencies, sky_size):
         
-        print "Adding instrument model"
+        print ("Adding instrument model")
         ## Number of 2D cells in sky array
         sky_cells = np.shape(lightcone)[0]
         
@@ -75,7 +88,7 @@ class ForegroundLikelihood:#(LikelihoodBase):
     
     def add_beam(self, frequencies, sky_cells, sky_size):
         
-        print "Adding beam attenuation"
+        print ("Adding beam attenuation")
         ## First find the sigma of the beam
         epsilon = 0.42
         D = 4 * un.m
@@ -95,12 +108,12 @@ class ForegroundLikelihood:#(LikelihoodBase):
         
         for ff in range(len(frequencies)):
             beam[:,:,ff] = np.exp(-(l**2 + m**2)/(sigma[ff]**2))
-        print beam[:,:,-1]
+        print (beam[:,:,-1])
         return beam
     
     def add_baselines_sampling(self, beam_sky, frequencies, sky_size, new_cells = 1200, max_uv = 300):
         
-        print "Sampling the Fourier space with baselines"
+        print ("Sampling the Fourier space with baselines")
         ## Read the tiles position
         MWA_array = np.genfromtxt("../Data/hex_pos.txt", float)
         
@@ -115,7 +128,7 @@ class ForegroundLikelihood:#(LikelihoodBase):
         
         frequencies = (frequencies)*(un.s**(-1))
         
-        print "Regridding the data in Fourier space"
+        print ("Regridding the data in Fourier space")
 
         for ff in range(len(frequencies)):
             lamb = const.c/frequencies[ff].to(1/un.s)
@@ -211,7 +224,7 @@ class ForegroundLikelihood:#(LikelihoodBase):
     
     def power_spectrum(self, visibility, coords, weights, linFrequencies, bins = 100):
         
-        print "Finding the power spectrum"
+        print ("Finding the power spectrum")
         ## Change the units of coords to Mpc
         z_mid = (1420e6)/(np.mean(linFrequencies))-1 
         coords[0] = 2*np.pi*coords[0]/cosmo.comoving_transverse_distance([z_mid])
@@ -248,19 +261,19 @@ class ForegroundLikelihood:#(LikelihoodBase):
     def volume(self, z_mid, nu_min, nu_max, A_eff=20):
         
         diff_nu = nu_max - nu_min
-        print diff_nu
+        print (diff_nu)
 
         G_z = (cosmo.H0).to(un.m/(un.Mpc * un.s))/1420e6*un.Hz*cosmo.efunc(z_mid)/(const.c*(1+z_mid)**2)
         
         Vol = const.c**2/(A_eff*un.m**2*nu_max*(1/un.s)**2)*diff_nu*(1/un.s)*cosmo.comoving_distance([z_mid])**2/(G_z)
-        print Vol
+        print (Vol)
         return Vol.value
     
-    def chi_square(self,power_spectrum, deg_of_freedom = 3):
-        print("Do this the formula way")
-        chi_sq, p_value = chisquare(power_spectrum, ddof=deg_of_freedom)
+    # def chi_square(self,power_spectrum, deg_of_freedom = 3):
+    #     print("Do this the formula way")
+    #     chi_sq, p_value = chisquare(power_spectrum, ddof=deg_of_freedom)
         
-        return chi_sq, p_value
+    #     return chi_sq, p_value
     
     def convert_factor_sources(self, nu=0):
         
@@ -274,3 +287,61 @@ class ForegroundLikelihood:#(LikelihoodBase):
             flux_density =  (2*const.k_B*1e-3*un.K/(((const.c)/(nu.to(1/un.s)))**2)*1e26).to(un.W/(un.Hz*un.m**2))
         
         return flux_density.value
+
+    def simulate_data(self, Smin, Smax, params, niter=20):
+        core = Core21cmFastModule(box_dim = self._box_dim, flag_options = self._flag_options, astro_params = self._astro_params, cosmo_params = self._cosmo_params)
+        fg_core = ForegroundCore(Smin, Smax)
+
+        ctx = ChainContext('derp',params)
+        
+
+        p = [0]*niter
+        k = [0]*niter
+        for i in range(niter):
+            core(ctx)
+            fg_core(ctx)
+            p[i], k[i] = self.computePower(ctx)
+
+        sigma = np.std(np.array(p), axis=-1)
+        p = np.mean(np.array(p), axis=-1)
+
+        np.savetxt(self.datafile, [k,p,sigma])
+
+
+if __name__ == "__main__":
+
+    from .Cores_py21cmmc import ForegroundCore
+    from py21cmmc.mcmc import run_mcmc
+    import os
+
+    filename_of_data = "../../data.txt"
+    Smin  = 1e-1
+    Smax = 1.0
+    if not os.path.exists(filename_of_data):
+        lk = ForegroundLikelihood(filename_of_data)
+        lk.simulate_data(Smin, Smax, {"HII_EFF_FACTOR":30.0}, niter=20)
+
+
+    run_mcmc(
+        redshift = 7.0,
+        parameters = {"HII_EFF_FACTOR": ['alpha', 30.0, 10.0, 50.0, 3.0]},
+        storage_options = {
+            "DATADIR": "../../MCMCData",
+            "KEEP_ALL_DATA":False,
+            "KEEP_GLOBAL_DATA":False,
+        },
+        box_dim = {
+            "HII_DIM": 30,
+            "BOX_LEN": 50.0
+        },
+        extra_core_modules = [ForegroundCore( Smin=Smin, Smax=Smax)],
+        likelihood_modules = [ForegroundLikelihood(filename_of_data)],
+        walkersRatio = 4,
+        burninIterations = 1,
+        sampleIterations = 10,
+        threadCount = 1
+    )
+
+
+
+

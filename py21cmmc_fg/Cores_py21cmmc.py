@@ -16,41 +16,40 @@ from astropy import units as un
 from scipy.interpolate import RegularGridInterpolator
 #from run_fake21cmmc import ctx
 
-
 class ForegroundCore:
     
     def __init__(self, S_min, S_max):
         """
         Setting up variables minimum and maximum flux
         """
-        print "Initializing the foreground core"
+        #print "Initializing the foreground core"
         
         self.S_min = S_min
         self.S_max = S_max
         
     def setup():
-        print( "Generating the foregrounds")
+        print("Generating the foregrounds")
     
-    def __call__(self, ctx, S_min, S_max):
+    def __call__(self, ctx):
         """
         Reading data and applying the foregrounds based on the variables
         """
-        print "Getting the simulation data"
+        print ("Getting the simulation data")
         
-        EoR_lightcone = ctx.get("lightcone")
+        EoR_lightcone = ctx.get("output")
         
         redshifts = ctx.get("redshifts")
         
-        boxsize = ctx.get("boxsize")
+        boxsize = ctx.get("box_len")
        
-        new_lightcone, frequencies, sky_size = self.add_foregrounds(EoR_lightcone, redshifts, boxsize, S_min, S_max)        
+        new_lightcone, frequencies, sky_size = self.add_foregrounds(EoR_lightcone, redshifts, boxsize)       
         
         ctx.add("foreground_lightcone", new_lightcone)
         ctx.add("frequencies", frequencies)
         ctx.add("sky_size", sky_size)
         
         
-    def add_foregrounds(self, EoR_lightcone, redshifts, boxsize, S_min, S_max):
+    def add_foregrounds(self, EoR_lightcone, redshifts, boxsize):
         """
         Adding foregrounds in unit of Jy to the EoR signal (lightcone)
         
@@ -74,7 +73,7 @@ class ForegroundCore:
         linFrequencies : The linearly-spaced frequencies corresponding to each slice of sky
         
         """
-        print "Adding the foregrounds"        
+        print ("Adding the foregrounds")        
         ## Number of 2D cells in sky array
         sky_cells = np.shape(EoR_lightcone)[0]
         
@@ -92,7 +91,7 @@ class ForegroundCore:
         linLightcone, linFrequencies = self.interpolate_freqs(EoR_lightcone, frequencies)
         
         ## Generate the point sources foregrounds and 
-        foregrounds = np.repeat(self.add_points(S_min, S_max, sky_cells, sky_size), np.shape(EoR_lightcone)[2], axis=2)
+        foregrounds = np.repeat(self.add_points(self.S_min, self.S_max, sky_cells, sky_size), np.shape(EoR_lightcone)[2], axis=2)
         
         self.add_diffuse()
         
@@ -179,7 +178,4 @@ class ForegroundCore:
         
         return flux_density.value
         
-        
-
-     
         
