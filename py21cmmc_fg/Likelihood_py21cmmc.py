@@ -7,7 +7,8 @@ Created on Fri Apr 20 16:54:22 2018
 """
 
 #import LikelihoodBase
-from powerbox import fft, angular_average_nd
+from powerbox.dft import fft
+from powerbox.tools import angular_average_nd
 import numpy as np
 from astropy import constants as const
 from astropy.cosmology import Planck15 as cosmo
@@ -15,8 +16,8 @@ from astropy import units as un
 import itertools as it
 from scipy.interpolate import RegularGridInterpolator
 from scipy.stats import chisquare
-from py21cmmc.likelihood import LikelihoodBase
-from CosmoHammer.ChainContext import ChainContext
+from py21cmmc.likelihood import LikelihoodBase, Core21cmFastModule
+from cosmoHammer.ChainContext import ChainContext
     
 
 class ForegroundLikelihood(LikelihoodBase):
@@ -289,10 +290,10 @@ class ForegroundLikelihood(LikelihoodBase):
         return flux_density.value
 
     def simulate_data(self, Smin, Smax, params, niter=20):
-        core = Core21cmFastModule(box_dim = self._box_dim, flag_options = self._flag_options, astro_params = self._astro_params, cosmo_params = self._cosmo_params)
+        core = Core21cmFastModule(parameters=params, box_dim = self._box_dim, flag_options = self._flag_options, astro_params = self._astro_params, cosmo_params = self._cosmo_params)
         fg_core = ForegroundCore(Smin, Smax)
 
-        ctx = ChainContext('derp',params)
+        ctx = ChainContext('derp',{"HII_EFF_FACTOR":30.0})
         
 
         p = [0]*niter
@@ -310,7 +311,7 @@ class ForegroundLikelihood(LikelihoodBase):
 
 if __name__ == "__main__":
 
-    from .Cores_py21cmmc import ForegroundCore
+    from Cores_py21cmmc import ForegroundCore
     from py21cmmc.mcmc import run_mcmc
     import os
 
@@ -319,7 +320,7 @@ if __name__ == "__main__":
     Smax = 1.0
     if not os.path.exists(filename_of_data):
         lk = ForegroundLikelihood(filename_of_data)
-        lk.simulate_data(Smin, Smax, {"HII_EFF_FACTOR":30.0}, niter=20)
+        lk.simulate_data(Smin, Smax, {"HII_EFF_FACTOR":['alpha', 30.0, 10.0, 50.0, 3.0]}, niter=20)
 
 
     run_mcmc(
