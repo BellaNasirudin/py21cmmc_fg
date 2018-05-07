@@ -41,7 +41,7 @@ class ForegroundCore:
         redshifts = ctx.get("output").redshifts_slices
         boxsize = ctx.get("output").box_len
 
-        print(EoR_lightcone.shape, redshifts, boxsize)
+        print(EoR_lightcone.shape, boxsize)
         new_lightcone, frequencies, sky_size = self.add_foregrounds(EoR_lightcone, redshifts, boxsize)       
         
         ctx.add("foreground_lightcone", new_lightcone)
@@ -200,15 +200,15 @@ class CoreInstrumentalSampling:
         # Find all the possible combination of tile displacement
         # baselines is a tuple of x and y displacements.
         self.baselines = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2]) * un.m
-
-        self.baselines = self.baselines[self.baselines[0]**2 + self.baselines[1]**2 <= self.max_bl_length**2]
-
+        
+        self.baselines = self.baselines[self.baselines[:,0].value**2 + self.baselines[:,1].value**2 <= self.max_bl_length**2]
+        
     def __call__(self, ctx):
         lightcone = ctx.get("output").lightcone_box
         frequencies = ctx.get("frequencies")
-        boxsize = ctx.get("boxsize")
         sky_size = ctx.get("sky_size")
-
+        
+        print ("are you doing this at all?")
         vis = self.add_instrument(lightcone, frequencies, sky_size)
 
         ctx.add("visibilities", vis)
