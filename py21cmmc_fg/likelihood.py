@@ -54,7 +54,7 @@ class ForegroundLikelihood(LikelihoodBase):
         baselines = ctx.get('baselines')
         frequencies = ctx.get("frequencies")
         n_uv = self.n_uv or ctx.get("output").lightcone_box.shape[0]
-
+        
         ugrid, visgrid, weights = self.regrid(visibilities, baselines, frequencies, n_uv)
 
         ## CONSIDER MOVING INTERPOLATING LINERALY SPACED FREQUENCY HERE INSTEAD
@@ -80,9 +80,6 @@ class ForegroundLikelihood(LikelihoodBase):
             v = baselines[1] * f / const.c
 
             U,V = np.meshgrid(u, v)
-
-            pos_u = np.digitize(u, bins = ugrid)-1
-            pos_v = np.digitize(v, bins = ugrid)-1
 
             weights[:,:,j] = np.histogram2d(U.flatten(), V.flatten(), bins=[ugrid,ugrid])[0]
             rl = np.histogram2d(U.flatten(), V.flatten(), bins=[ugrid,ugrid], weights=np.real(visibilities))[0]
@@ -334,6 +331,11 @@ class ForegroundLikelihood(LikelihoodBase):
 
         fg_core = ForegroundCore(Smin, Smax)
         fg_core.setup()
+        
+        # It wasn't running so I copied these from below. Don't know if it's correct but it works- Bella
+        # But it's not doing __call__ for instrument
+        instr_core = CoreInstrumentalSampling(antenna_posfile="../../../Data/hex_pos.txt", freq_min = 150.0, freq_max = 180.0, nfreq=30, tile_diameter = 4.0, max_bl_length=150.0)        
+        instr_core.setup()
 
         params = Params(*[(k, v[1]) for k, v in params.items()])
         ctx = ChainContext('derp', params)
@@ -390,7 +392,7 @@ if __name__ == "__main__":
     except:
         pass
 
-    lk_fg = ForegroundLikelihood(filename_of_data, , box_dim = box_dim, flag_options=flag_options)
+    lk_fg = ForegroundLikelihood(filename_of_data, box_dim = box_dim, flag_options=flag_options)
 
     if not os.path.exists(filename_of_data):
         lk_fg.simulate_data(Smin, Smax, parameters, niter=20)
@@ -405,7 +407,7 @@ if __name__ == "__main__":
         extra_core_modules = [
             ForegroundCore( Smin=Smin, Smax=Smax),
             CoreInstrumentalSampling(
-                antenna_posfile="../../clustering_counts_paper/hex_pos.txt",
+                antenna_posfile="../../../Data/hex_pos.txt",
                 freq_min = 150.0,
                 freq_max = 180.0,
                 nfreq=30,
