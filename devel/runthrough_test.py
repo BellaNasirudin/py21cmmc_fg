@@ -21,7 +21,22 @@ flag_options = {
     'redshifts': 7.0
 }
 
-fg_core = ForegroundCore(S_min=1e-1, S_max=1.0)
+fg_core = ForegroundCore(
+    pt_source_params=dict(
+        S_min=1e-1,
+        S_max=1.0
+    ),
+    diffuse_params=dict(
+        u0=10.0,
+        eta = 0.01,
+        power_index = -2.7,
+        mean_temp=253e3,
+        kappa=-2.55
+    ),
+    add_point_sources=True,
+    add_diffuse=True
+)
+
 instr_core = CoreInstrumentalSampling(
     antenna_posfile="grid_centres",
     freq_min=150.0, freq_max=160.0, nfreq=35,

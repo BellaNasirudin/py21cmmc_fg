@@ -15,17 +15,21 @@ from astropy.cosmology import Planck15 as cosmo  # TODO: this is not quite corre
 from astropy import units as un
 from scipy.interpolate import RegularGridInterpolator
 from powerbox.dft import fft
+from powerbox import LogNormalPowerBox
 from os import path
+from astropy import constants as cnst
 
 class ForegroundCore:
-    def __init__(self, S_min, S_max):
+    def __init__(self, pt_source_params={}, diffuse_params = {},  add_point_sources=True, add_diffuse=True):
         """
         Setting up variables minimum and maximum flux
         """
         # print "Initializing the foreground core"
 
-        self.S_min = S_min
-        self.S_max = S_max
+        self.pt_source_params = pt_source_params
+        self.diffuse_params = diffuse_params
+        self._add_diffuse = add_diffuse
+        self._add_point_sources = add_point_sources
 
     def setup(self):
         print("Generating the foregrounds")
@@ -80,25 +84,31 @@ class ForegroundCore:
         # IF USING SMALL BOX, THIS IS WHERE WE DO STITCHING!!!
         sky_size = 2 * np.arctan(boxsize / (2 * (cosmo.comoving_transverse_distance([np.mean(redshifts)]).value)))
 
-        # Change the units of brightness temperature from mK to Jy/sr
-        EoR_lightcone = np.flip(EoR_lightcone * self.convert_factor_sources(), axis=2)
-
         # Convert redshifts to frequencies in Hz and generate linearly-spaced frequencies
         frequencies = 1420e6 / (1 + redshifts[::-1])
 
+        if self._add_diffuse:
+            # We add it here, because it's easier to add in Kelvin
+            EoR_lightcone += self.add_diffuse(frequencies, sky_cells, sky_size, **self.diffuse_params)
+
+        # Change the units of brightness temperature from mK to Jy/sr
+        EoR_lightcone = np.flip(EoR_lightcone * self.convert_factor_sources(), axis=2)
+
+
+
         # Interpolate linearly in frequency (POSSIBLY IN RADIAN AS WELL)
+        # TODO: I don't think we need to do this, as we can interpolate in the Instrumenal class.
         linLightcone, linFrequencies = self.interpolate_freqs(EoR_lightcone, frequencies)
 
         # Generate the point sources foregrounds and
-        foregrounds = np.repeat(self.add_points(self.S_min, self.S_max, sky_cells, sky_size),
-                                np.shape(EoR_lightcone)[2], axis=2)
+        # TODO: this has no dependence on spectral index!!!
+        if self._add_point_sources:
+            linLightcone += np.repeat(self.add_points(sky_cells = sky_cells, sky_area=sky_size, **self.pt_source_params),
+                                        np.shape(EoR_lightcone)[2], axis=2)
 
-        self.add_diffuse()
 
-        ## Add the foregrounds and the EoR signal
-        sky = foregrounds + linLightcone
 
-        return sky, linFrequencies, sky_size
+        return linLightcone, linFrequencies, sky_size
 
     def interpolate_freqs(self, data, frequencies, uv_range=100):
         """
@@ -135,36 +145,61 @@ class ForegroundCore:
 
         return interpData, linFrequencies
 
-    def add_points(self, S_min, S_max, sky_cells, sky_area):
+    def add_points(self, sky_cells, sky_area, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59):
 
-        ## Create a function for source count distribution
-        alpha = 4100
-        beta = 1.59
+        # Create a function for source count distribution
         source_count = lambda x: alpha * x ** (-beta)
 
-        ## Find the mean number of sources
+        # Find the mean number of sources
         n_bar = quad(source_count, S_min, S_max)[0]
 
-        ## Generate the number of sources following poisson distribution
+        # Generate the number of sources following poisson distribution
         N_sources = np.random.poisson(n_bar)
 
-        ## Generate the point sources in unit of Jy and position using uniform distribution
+        # Generate the point sources in unit of Jy and position using uniform distribution
         fluxes = ((S_max ** (1 - beta) - S_min ** (1 - beta)) * np.random.uniform(size=N_sources) + S_min ** (
                     1 - beta)) ** (1 / (1 - beta))
         pos = np.rint(np.random.uniform(0, sky_cells - 1, size=(N_sources, 2))).astype(int)
 
-        ## Create an empty array and fill it up by adding the point sources
+        # Create an empty array and fill it up by adding the point sources
         sky = np.zeros((sky_cells, sky_cells, 1))
         for ii in range(N_sources):
             sky[pos[ii, 0], pos[ii, 1]] += fluxes[ii]
 
-        ## Divide by area of each sky cell; Jy/sr
+        # Divide by area of each sky cell; Jy/sr
         sky = sky / (sky_area / sky_cells)
 
         return sky
 
-    def add_diffuse(self):
-        print("Please input diffuse sources")
+    def add_diffuse(self, frequencies, ncells, sky_size,
+                    u0=10.0,
+                    eta = 0.01,
+                    power_index = -2.7,
+                    mean_temp=253e3,
+                    kappa=-2.55):
+        """
+        This creates diffuse structure according to Eq. 55 from Trott+2016.
+        """
+
+        # Calculate mean flux density per frequency
+        Tbar = (frequencies/1e8)**kappa * mean_temp
+        power_spectrum = lambda  u : eta*(u/u0)**power_index
+
+        # Create a log normal distribution of fluctuations
+        pb = LogNormalPowerBox(N=ncells, pk=power_spectrum, dim=2, boxlength=sky_size[0], a=0, b=2 * np.pi, seed=1234)
+
+        density = pb.delta_x() + 1
+
+        # Multiply the inherent fluctations by the mean flux density.
+        Tbins = np.zeros((ncells, ncells, len(frequencies)))
+        if np.std(density)>0:
+            for i, f0 in enumerate(frequencies):
+                    Tbins[:,:,i] = Tbar[i] * density
+        else:
+            for i in range(len(frequencies)):
+                Tbins[:,:, i] = Tbar[i]
+
+        return Tbins
 
     def convert_factor_sources(self, nu=0):
 
