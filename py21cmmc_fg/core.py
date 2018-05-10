@@ -40,7 +40,6 @@ class ForegroundCore:
         redshifts = ctx.get("output").redshifts_slices
         boxsize = ctx.get("output").box_len
 
-        print(EoR_lightcone.shape, boxsize)
         new_lightcone, frequencies, sky_size = self.add_foregrounds(EoR_lightcone, redshifts, boxsize)
 
         ctx.add("foreground_lightcone", new_lightcone)
@@ -79,9 +78,13 @@ class ForegroundCore:
         # Convert the boxsize from Mpc to radian
         # IF USING SMALL BOX, THIS IS WHERE WE DO STITCHING!!!
         sky_size = 2 * np.arctan(boxsize / (2 * (cosmo.comoving_transverse_distance([np.mean(redshifts)]).value)))
-
+        
+        print("Min and max Tb in mK",EoR_lightcone.min(),EoR_lightcone.max())
+        
         # Change the units of brightness temperature from mK to Jy/sr
         EoR_lightcone = np.flip(EoR_lightcone * self.convert_factor_sources(), axis=2)
+        
+        print("Min and max Tb in Jy/sr",EoR_lightcone.min(),EoR_lightcone.max())
 
         # Convert redshifts to frequencies in Hz and generate linearly-spaced frequencies
         frequencies = 1420e6 / (1 + redshifts[::-1])
@@ -97,7 +100,9 @@ class ForegroundCore:
 
         ## Add the foregrounds and the EoR signal
         sky = foregrounds + linLightcone
-
+        
+        print("Min and max sky in Jy/sr",sky.min(),sky.max())
+        
         return sky, linFrequencies, sky_size
 
     def interpolate_freqs(self, data, frequencies, uv_range=100):
@@ -160,6 +165,8 @@ class ForegroundCore:
 
         ## Divide by area of each sky cell; Jy/sr
         sky = sky / (sky_area / sky_cells)
+        
+        print("Min and max foregrounds flux in Jy/sr",sky.min(), sky.max())
 
         return sky
 
@@ -227,11 +234,11 @@ class CoreInstrumentalSampling:
                 self.baselines[:, 0].value ** 2 + self.baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
 
     def __call__(self, ctx):
-        lightcone = ctx.get("output").lightcone_box
+        new_lightcone = ctx.get("foreground_lightcone")
         frequencies = ctx.get("frequencies")
         sky_size = ctx.get("sky_size")
 
-        vis = self.add_instrument(lightcone, frequencies, sky_size)
+        vis = self.add_instrument(new_lightcone, frequencies, sky_size)
 
         ctx.add("visibilities", vis)
         ctx.add("baselines", self.baselines)

@@ -16,6 +16,7 @@ from astropy import units as un
 from py21cmmc.likelihood import LikelihoodBase, Core21cmFastModule
 from cosmoHammer.ChainContext import ChainContext
 from cosmoHammer.util import Params
+import sys
 
 
 class ForegroundLikelihood(LikelihoodBase):
@@ -31,11 +32,15 @@ class ForegroundLikelihood(LikelihoodBase):
 
     def setup(self):
         print("read in data")
-        data = np.genfromtxt(self.datafile)
-        print("DATA SHAPE: ", data.shape)
-        self.k = data[:, 0]
-        self.power = data[:, 1]
-        self.uncertainty = data[:, 2]
+        data = np.load(self.datafile +".npz")
+        
+        self.k = data["k"]
+        self.power = data["p"]
+        self.uncertainty = data["sigma"]
+        
+        self.power_1D, self.uncertainty_1D = self.suppressedFg_1DPower()
+        
+        print("Supressed 1D PS:",self.power_1D, self.uncertainty_1D)
 
     def computeLikelihood(self, ctx):
 
@@ -61,12 +66,28 @@ class ForegroundLikelihood(LikelihoodBase):
         visgrid, eta = self.frequency_fft(visgrid, frequencies)
 
         # TODO: this is probably wrong!
-        weights = np.sum(weights, axis=-1)
+        #weights = np.sum(weights, axis=-1)
 
-        power2d = self.get_2d_power(visgrid, eta)
-
+        power2d, coords  = self.get_2D_power(visgrid, [ugrid, ugrid, eta[0]], weights, frequencies, bins=self.n_psbins )
         # Find the 1D Power Spectrum of the visibility
-        return self.power_spectrum(visgrid, [ugrid, ugrid, eta[0]], weights, frequencies, bins=self.n_psbins)
+        #self.get_1D_power(visgrid, [ugrid, ugrid, eta[0]], weights, frequencies, bins=self.n_psbins)
+        return power2d, coords
+    
+    def suppressedFg_1DPower(self, bins = 20):
+        
+        annuli_bins = np.linspace(0, np.sqrt(self.k[0].max()**2+self.k[1].max()**2), bins)
+        
+        k_par, k_perp = np.meshgrid(self.k[0], self.k[1])
+        
+        k_indices = np.digitize(k_par**2+k_perp**2, bins = annuli_bins**2) -1
+        
+        P_1D = np.zeros(len(annuli_bins))
+        uncertainty_1D = np.zeros(len(annuli_bins))
+
+        P_1D[:] = [1 / np.sum(1 / self.uncertainty[k_indices == kk] ** 2) * np.sum((self.power[k_indices == kk] + self.uncertainty[k_indices == kk]) / self.uncertainty[k_indices == kk] ** 2) for kk in range(len(annuli_bins))]
+        uncertainty_1D[:] = [np.sum([k_indices == kk]) / np.sum(1 / self.uncertainty[k_indices == kk]) for kk in range(len(annuli_bins))]
+        
+        return P_1D, uncertainty_1D
 
     def grid(self, visibilities, baselines, frequencies, ngrid):
 
@@ -96,24 +117,21 @@ class ForegroundLikelihood(LikelihoodBase):
         return centres, visgrid, weights
 
     def frequency_fft(self, vis, freq):
-        print(vis.shape)
         return fft(vis, (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)
 
-    def power_spectrum(self, visibility, coords, weights, linFrequencies, bins=100):
+    def get_1D_power(self, visibility, coords, weights, linFrequencies, bins=100):
 
         print("Finding the power spectrum")
         ## Change the units of coords to Mpc
         z_mid = (1420e6) / (np.mean(linFrequencies)) - 1
         coords[0] = 2 * np.pi * coords[0] / cosmo.comoving_transverse_distance([z_mid])
         coords[1] = 2 * np.pi * coords[1] / cosmo.comoving_transverse_distance([z_mid])
-        coords[2] = 2 * np.pi * coords[2] * (cosmo.H0).to(un.m / (un.Mpc * un.s)) / 1420e6 * un.Hz * cosmo.efunc(
+        coords[2] = 2 * np.pi * coords[2] * (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(
             z_mid) / (const.c * (1 + z_mid) ** 2)
 
         ## Change the unit of visibility
         visibility = visibility / self.convert_factor_sources() * self.convert_factor_HztoMpc(np.min(linFrequencies),
-                                                                                              np.max(
-                                                                                                  linFrequencies)) * self.convert_factor_SrtoMpc2(
-            z_mid)
+                                                              np.max(linFrequencies)) * self.convert_factor_SrtoMpc2(z_mid)
 
         ## Square the visibility
         visibility_sq = np.abs(visibility) ** 2
@@ -126,7 +144,70 @@ class ForegroundLikelihood(LikelihoodBase):
         PS_mK2Mpc3 = PS_mK2Mpc6 / self.volume(z_mid, np.min(linFrequencies), np.max(linFrequencies))
 
         return PS_mK2Mpc3, k_Mpc
+    
+    def get_2D_power(self, V_tilde, coords, weights, linFrequencies, bins=100):
+        '''
+        Finding the 2D Power Spectrum of the visibility
+        
+        Parameters
+        ----------
+            
+        V_tilde : float or array-like (complex)
+            The visibility
+        
+        coords: array-like
+            The range of values of the (x,y) coordinates in V_tilde
+        
+        weights: int
+            The weighting for the cylindrical averaging
+            With the default value, everything has a weight of 1
+            When it is set to 0, we only consider cells which are not empty
 
+        bins : int
+            The number of radial bin in terms of u and v coordinates of Fourier Transform
+        
+        Returns
+        -------
+        P : array-like
+            The cylindrical average or 2D Power Spectrum of the visibility, V_tilde
+            The shape of P is (number of etas/frequencies)x(number of radial bins)
+        '''
+        print("Finding the power spectrum")
+        
+        ## Change the units of coords to Mpc
+        z_mid = (1420e6) / (np.mean(linFrequencies)) - 1
+        coords[0] = 2 * np.pi * coords[0] / cosmo.comoving_transverse_distance([z_mid])
+        coords[1] = 2 * np.pi * coords[1] / cosmo.comoving_transverse_distance([z_mid])
+        coords[2] = 2 * np.pi * coords[2] * (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(z_mid) / (const.c * (1 + z_mid) ** 2)
+        
+        ## Generate the radial bins
+        radial_bins = np.linspace(0, np.sqrt(2*np.max(coords[0].value)**2), bins)
+
+        P = np.zeros([np.shape(V_tilde)[-1],len(radial_bins)])
+        
+        u , v = np.meshgrid(coords[0],coords[1])
+        
+        bins = np.zeros([np.shape(V_tilde)[-1],len(radial_bins)])
+    
+        binIndices = np.digitize((u.value**2+v.value**2), bins=radial_bins**2)-1
+        
+        V_tilde = V_tilde / self.convert_factor_sources() * self.convert_factor_HztoMpc(np.min(linFrequencies),
+                                                              np.max(linFrequencies)) * self.convert_factor_SrtoMpc2(z_mid)
+        
+        V_tilde_sq = np.absolute(V_tilde.value)**2
+                    
+        for eta in range(np.shape(V_tilde)[-1]):
+            
+            V_tilde_sq_eta = V_tilde_sq[:,:,eta]
+    
+            P[eta,:] =[np.sum(V_tilde_sq_eta[binIndices==k]) for k in range(len(radial_bins))]
+            
+            bins[eta,:] = [np.sum((weights[binIndices==k])) for k in range(len(radial_bins))]        
+       
+        P[bins>0] = P[bins>0] / bins[bins>0] / self.volume(z_mid, np.min(linFrequencies), np.max(linFrequencies))
+    
+        return P, [radial_bins, coords[2].value]
+    
     def convert_factor_HztoMpc(self, nu_min, nu_max):
 
         z_max = (1420e6) / (nu_min) - 1
@@ -145,9 +226,8 @@ class ForegroundLikelihood(LikelihoodBase):
     def volume(self, z_mid, nu_min, nu_max, A_eff=20):
 
         diff_nu = nu_max - nu_min
-        print(diff_nu)
 
-        G_z = (cosmo.H0).to(un.m / (un.Mpc * un.s)) / 1420e6 * un.Hz * cosmo.efunc(z_mid) / (const.c * (1 + z_mid) ** 2)
+        G_z = (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(z_mid) / (const.c * (1 + z_mid) ** 2)
 
         Vol = const.c ** 2 / (A_eff * un.m ** 2 * nu_max * (1 / un.s) ** 2) * diff_nu * (
                     1 / un.s) * cosmo.comoving_distance([z_mid]) ** 2 / (G_z)
@@ -196,7 +276,4 @@ class ForegroundLikelihood(LikelihoodBase):
         sigma = np.std(np.array(p), axis=0)
         p = np.mean(np.array(p), axis=0)
 
-        print(k)
-        print(p)
-        print(sigma)
-        np.savetxt(self.datafile, np.array([k, p, sigma]).T)
+        np.savez(self.datafile, k=k, p=p, sigma=sigma)
