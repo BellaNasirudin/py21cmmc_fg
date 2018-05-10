@@ -1,3 +1,5 @@
+import sys
+sys.path.insert(0, '../')
 from py21cmmc_fg.core import ForegroundCore, CoreInstrumentalSampling
 from py21cmmc_fg.likelihood import ForegroundLikelihood
 from py21cmmc.mcmc import run_mcmc
