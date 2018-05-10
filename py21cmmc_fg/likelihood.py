@@ -46,7 +46,6 @@ class ForegroundLikelihood(LikelihoodBase):
 
         PS_mK2Mpc3, k_Mpc = self.computePower(ctx)
 
-        print(self.power.shape, PS_mK2Mpc3.shape, self.uncertainty.shape)
         # ctx.add("power_spectrum", PS_mK2Mpc3)
         ## FIND CHI SQUARE OF PS!!!
         # this is a bit too simple. Firstly, you need to make sure that the k values line up. secondly, you need uncertainties.
@@ -217,10 +216,9 @@ class ForegroundLikelihood(LikelihoodBase):
 
         return Mpc_Hz
 
-    def convert_factor_SrtoMpc2(self, z_mid):
-
+    @staticmethod
+    def convert_factor_SrtoMpc2(z_mid):
         Mpc2_sr = cosmo.comoving_distance([z_mid]) / (1 * un.sr)
-
         return Mpc2_sr
 
     def volume(self, z_mid, nu_min, nu_max, A_eff=20):
