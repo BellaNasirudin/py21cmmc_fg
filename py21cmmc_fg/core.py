@@ -79,12 +79,8 @@ class ForegroundCore:
         # IF USING SMALL BOX, THIS IS WHERE WE DO STITCHING!!!
         sky_size = 2 * np.arctan(boxsize / (2 * (cosmo.comoving_transverse_distance([np.mean(redshifts)]).value)))
         
-        print("Min and max Tb in mK",EoR_lightcone.min(),EoR_lightcone.max())
-        
         # Change the units of brightness temperature from mK to Jy/sr
         EoR_lightcone = np.flip(EoR_lightcone * self.convert_factor_sources(), axis=2)
-        
-        print("Min and max Tb in Jy/sr",EoR_lightcone.min(),EoR_lightcone.max())
 
         # Convert redshifts to frequencies in Hz and generate linearly-spaced frequencies
         frequencies = 1420e6 / (1 + redshifts[::-1])
@@ -100,8 +96,6 @@ class ForegroundCore:
 
         ## Add the foregrounds and the EoR signal
         sky = foregrounds + linLightcone
-        
-        print("Min and max sky in Jy/sr",sky.min(),sky.max())
         
         return sky, linFrequencies, sky_size
 
@@ -160,13 +154,14 @@ class ForegroundCore:
 
         ## Create an empty array and fill it up by adding the point sources
         sky = np.zeros((sky_cells, sky_cells, 1))
+        bins = np.zeros((sky_cells, sky_cells, 1))
+        
         for ii in range(N_sources):
             sky[pos[ii, 0], pos[ii, 1]] += fluxes[ii]
+            bins[pos[ii, 0], pos[ii, 1]] += 1
 
         ## Divide by area of each sky cell; Jy/sr
-        sky = sky / (sky_area / sky_cells)
-        
-        print("Min and max foregrounds flux in Jy/sr",sky.min(), sky.max())
+        sky[bins>0] = sky[bins>0] / (sky_area / sky_cells * bins[bins>0])
 
         return sky
 
@@ -265,11 +260,11 @@ class CoreInstrumentalSampling:
             self.baselines[:, 1] = V.flatten()*(const.c/frequencies.max())
 
         # Fourier Transform over the (u,v) dimension and baselines sampling
-        visibilities = self.add_baselines_sampling(uvplane, uv, frequencies)
+        visibilities = self.add_baselines_sampling(uvplane, uv, frequencies)        
         visibilities = self.interpolate_frequencies(visibilities, frequencies)
 
         # Add thermal noise
-        visibilities = self.add_thermal_noise(visibilities)
+        visibilities = self.add_thermal_noise(visibilities, frequencies)
 
         return visibilities
 
@@ -287,8 +282,9 @@ class CoreInstrumentalSampling:
         sky_coords_lm = np.sin(np.linspace(-sky_size / 2, sky_size / 2, sky_cells))
 
         L, M = np.meshgrid(sky_coords_lm, sky_coords_lm)
-
-        beam = np.outer(np.exp(-L ** 2 + M ** 2), 1. / sigma ** 2).reshape((sky_cells, sky_cells, len(frequencies)))
+        
+        beam = np.exp(np.outer(-(L ** 2 + M ** 2), 1. / sigma ** 2).reshape((sky_cells, sky_cells, len(frequencies))))
+        
         return beam
 
     def image_to_uv(self, sky, L):
@@ -349,5 +345,14 @@ class CoreInstrumentalSampling:
 
         return np.array([Xsep.flatten()[np.logical_not(zeros)], Ysep.flatten()[np.logical_not(zeros)]]).T
 
-    def add_thermal_noise(self,  visibilities):
+    def add_thermal_noise(self,  visibilities, frequencies, delta_t = 1200):
+        
+        sigma = 20e3 / np.sqrt((frequencies.max()-frequencies.min())*delta_t)
+        
+        rl = np.random.normal(np.mean(np.real(visibilities)), np.std(np.real(visibilities)))
+        im = np.random.normal(np.mean(np.imag(visibilities)), np.std(np.imag(visibilities)))
+        
+        # TODO: check the units of sigma 
+        visibilities = visibilities + sigma * (rl + im * 1j)
+        
         return visibilities
