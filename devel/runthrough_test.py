@@ -1,7 +1,7 @@
 import sys
 sys.path.insert(0, '../')
-from py21cmmc_fg.core import ForegroundCore, CoreInstrumentalSampling
-from py21cmmc_fg.likelihood import ForegroundLikelihood
+from py21cmmc_fg.core import CoreForegrounds, CoreInstrumental
+from py21cmmc_fg.likelihood import LikelihoodForeground
 from py21cmmc.mcmc import run_mcmc
 import os
 
@@ -23,7 +23,7 @@ flag_options = {
     'redshifts': 7.0
 }
 
-fg_core = ForegroundCore(
+fg_core = CoreForegrounds(
     pt_source_params=dict(
         S_min=1e-1,
         S_max=1.0
@@ -39,7 +39,7 @@ fg_core = ForegroundCore(
     add_diffuse=True
 )
 
-instr_core = CoreInstrumentalSampling(
+instr_core = CoreInstrumental(
     antenna_posfile="grid_centres",
     freq_min=150.0, freq_max=160.0, nfreq=35,
     tile_diameter=4.0,
@@ -55,7 +55,7 @@ try:
 except:
     pass
 
-lk_fg = ForegroundLikelihood(filename_of_data, box_dim=box_dim, flag_options=flag_options, n_psbins=20)
+lk_fg = LikelihoodForeground(filename_of_data, box_dim=box_dim, flag_options=flag_options, n_psbins=20)
 
 if not os.path.exists(filename_of_data):
     lk_fg.simulate_data(fg_core, instr_core, parameters, niter=3)
