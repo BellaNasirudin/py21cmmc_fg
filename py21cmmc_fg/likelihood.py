@@ -16,7 +16,6 @@ from astropy import units as un
 from py21cmmc.likelihood import LikelihoodBase, Core21cmFastModule
 from cosmoHammer.ChainContext import ChainContext
 from cosmoHammer.util import Params
-import sys
 
 
 class ForegroundLikelihood(LikelihoodBase):
@@ -37,16 +36,11 @@ class ForegroundLikelihood(LikelihoodBase):
         self.k = data["k"]
         self.power = data["p"]
         self.uncertainty = data["sigma"]
-        
-        self.power_1D, self.uncertainty_1D = self.suppressedFg_1DPower()
-        
-        print("Supressed 1D PS:",self.power_1D, self.uncertainty_1D)
 
     def computeLikelihood(self, ctx):
 
         PS_mK2Mpc3, k_Mpc = self.computePower(ctx)
 
-        # ctx.add("power_spectrum", PS_mK2Mpc3)
         ## FIND CHI SQUARE OF PS!!!
         # this is a bit too simple. Firstly, you need to make sure that the k values line up. secondly, you need uncertainties.
         return -0.5 * np.sum((self.power - PS_mK2Mpc3) ** 2 / self.uncertainty ** 2)
@@ -66,8 +60,8 @@ class ForegroundLikelihood(LikelihoodBase):
 
         # TODO: this is probably wrong!
         #weights = np.sum(weights, axis=-1)
-
         power2d, coords  = self.get_2D_power(visgrid, [ugrid, ugrid, eta[0]], weights, frequencies, bins=self.n_psbins )
+
         # Find the 1D Power Spectrum of the visibility
         #self.get_1D_power(visgrid, [ugrid, ugrid, eta[0]], weights, frequencies, bins=self.n_psbins)
         return power2d, coords
@@ -103,7 +97,7 @@ class ForegroundLikelihood(LikelihoodBase):
             v = baselines[:, 1] * f / const.c
 
             # TODO: doing three of the same histograms is probably unnecessary.
-            weights[:, :, j] = np.histogram2d(u, v, bins=[ugrid, ugrid])[0]
+            weights[:, :, j] = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid])[0]
             rl = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=np.real(visibilities[:,j]))[0]
             im = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=np.imag(visibilities[:,j]))[0]
 
@@ -189,23 +183,20 @@ class ForegroundLikelihood(LikelihoodBase):
         bins = np.zeros([np.shape(V_tilde)[-1],len(radial_bins)])
     
         binIndices = np.digitize((u.value**2+v.value**2), bins=radial_bins**2)-1
-        
-        V_tilde = V_tilde / self.convert_factor_sources() * self.convert_factor_HztoMpc(np.min(linFrequencies),
-                                                              np.max(linFrequencies)) * self.convert_factor_SrtoMpc2(z_mid)
-        
-        V_tilde_sq = np.absolute(V_tilde.value)**2
+
+        V_tilde_sq = np.absolute(V_tilde)**2
                     
         for eta in range(np.shape(V_tilde)[-1]):
-            
-            V_tilde_sq_eta = V_tilde_sq[:,:,eta]
     
-            P[eta,:] =[np.sum(V_tilde_sq_eta[binIndices==k]) for k in range(len(radial_bins))]
+            P[eta,:] =[np.sum(V_tilde_sq[:,:,eta][binIndices==k]) for k in range(len(radial_bins))]
             
-            bins[eta,:] = [np.sum((weights[binIndices==k])) for k in range(len(radial_bins))]        
-       
-        P[bins>0] = P[bins>0] / bins[bins>0] / self.volume(z_mid, np.min(linFrequencies), np.max(linFrequencies))
+            bins[eta,:] = [np.sum((weights[:,:,eta][binIndices==k])) for k in range(len(radial_bins))]
+            
+        P[bins>0] = P[bins>0] / bins[bins>0] 
+        P = P * (1 / self.convert_factor_sources() * self.convert_factor_HztoMpc(np.min(linFrequencies),
+                                                              np.max(linFrequencies)) * self.convert_factor_SrtoMpc2(z_mid))**2/ self.volume(z_mid, np.min(linFrequencies), np.max(linFrequencies))
     
-        return P, [radial_bins, coords[2].value]
+        return P.value, [radial_bins, coords[2].value]
     
     def convert_factor_HztoMpc(self, nu_min, nu_max):
 
@@ -213,7 +204,7 @@ class ForegroundLikelihood(LikelihoodBase):
         z_min = (1420e6) / (nu_max) - 1
 
         Mpc_Hz = (cosmo.comoving_distance([z_max]) - cosmo.comoving_distance([z_min])) / (nu_max - nu_min)
-
+        
         return Mpc_Hz
 
     @staticmethod
@@ -229,6 +220,7 @@ class ForegroundLikelihood(LikelihoodBase):
 
         Vol = const.c ** 2 / (A_eff * un.m ** 2 * nu_max * (1 / un.s) ** 2) * diff_nu * (
                     1 / un.s) * cosmo.comoving_distance([z_mid]) ** 2 / (G_z)
+
         return Vol.value
 
     def convert_factor_sources(self, nu=0):
@@ -243,7 +235,7 @@ class ForegroundLikelihood(LikelihoodBase):
         else:
             flux_density = (2 * const.k_B * 1e-3 * un.K / (((const.c) / (nu.to(1 / un.s))) ** 2) * 1e26).to(
                 un.W / (un.Hz * un.m ** 2))
-
+        
         return flux_density.value
 
     def simulate_data(self, fg_core, instr_core, params, niter=20):
