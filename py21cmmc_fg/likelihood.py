@@ -63,20 +63,35 @@ class LikelihoodForeground2D(LikelihoodBase):
         Data should be in an npz file, and contain a "k" and "p" array. k should be in 1/Mpc, and p in Mpc**3.
         """
         data = np.load(self.datafile +".npz")
-        
+
+        # TODO: it may be better to read in visbilities, and transform them here an now. In any case, we'll end up with
+        # the following variables after the transformation anyway, so we can work with them.
         self.kpar = data["kpar"]
         self.kperp = data['kperp']
         self.power = data["p"]
+
+        # This just monitors whether we've check the k dimensions.
+        self._checked = False
 
     def computeLikelihood(self, ctx):
 
         p, k = self.computePower(ctx)
 
+        # Make sure we have the correct kpar and kperp. We can remove this if the data itself is generated from
+        # this class.
+        if not self._checked:
+            if len(k[0]) != len(self.kperp) or not np.isclose(k[0][0], self.kperp[0], 1e-4) or not np.isclose(k[0][-1], self.kperp[-1], 1e-4):
+                raise ValueError("The kperp dimensions between data and model are incompatible.")
+            if len(k[1]) != len(self.kpar) or not np.isclose(k[1][0], self.kpar[0], 1e-4) or not np.isclose(k[1][-1],
+                                                                                                           self.kperp[-1],
+                                                                                                           1e-4):
+                raise ValueError("The kpar dimensions between data and model are incompatible.")
+
+            self._checked = True
 
         # FIND CHI SQUARE OF PS!!!
-        # TODO: this is a bit too simple.
-        # Firstly, you need to make sure that the k values line up. secondly, you need uncertainties.
-        return -0.5 * np.sum((self.power - PS_mK2Mpc3) ** 2 / self.uncertainty ** 2)
+        # TODO: this is a bit too simple. We need uncertainties!
+        return -0.5 * np.sum((self.power - p) ** 2 / self.uncertainty ** 2)
 
     def computePower(self, ctx):
         """
