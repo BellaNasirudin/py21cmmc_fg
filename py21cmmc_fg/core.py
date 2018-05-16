@@ -17,12 +17,12 @@ from scipy.interpolate import RegularGridInterpolator
 from powerbox.dft import fft
 from powerbox import LogNormalPowerBox
 from os import path
-from astropy import constants as cnst
-from py21cmmc.likelihood import
+from py21cmmc import LightCone
 
 
 class CoreForegrounds:
-    def __init__(self, pt_source_params={}, diffuse_params = {},  add_point_sources=True, add_diffuse=True):
+    def __init__(self, pt_source_params={}, diffuse_params = {},  add_point_sources=True, add_diffuse=True, redshifts=None,
+                 boxsize=None, sky_cells = None):
         """
         Setting up variables minimum and maximum flux
         """
@@ -32,6 +32,18 @@ class CoreForegrounds:
         self.diffuse_params = diffuse_params
         self.add_diffuse = add_diffuse
         self.add_point_sources = add_point_sources
+
+        self.redshifts = redshifts
+
+        if np.any(np.diff(self.redshifts)< 0) :
+            print("yeah in here")
+            self.redshifts = self.redshifts[::-1]
+
+        if np.any(np.diff(self.redshifts) < 0) :
+            raise ValueError("Redshifts need to be monotonically increasing. %s"%self.redshifts)
+
+        self.boxsize = boxsize
+        self.sky_cells = sky_cells
 
     def setup(self):
         print("Generating the foregrounds")
@@ -46,27 +58,41 @@ class CoreForegrounds:
         """
         print("Getting the simulation data")
 
-        eor_lightcone = ctx.get("output").lightcone_box
-        redshifts = ctx.get("output").redshifts_slices
-        boxsize = ctx.get("output").box_len
+        eor = ctx.get("output", None)
+        if eor is not None:
+            eor_lightcone = ctx.get("output").lightcone_box
+            redshifts = ctx.get("output").redshifts_slices
+            boxsize = ctx.get("output").box_len
+            sky_cells = eor_lightcone.shape[0]
+        else:
+            redshifts = self.redshifts
+            boxsize = self.boxsize
+            sky_cells = self.sky_cells
 
-        new_lightcone, frequencies, sky_size = self.add_foregrounds(eor_lightcone, redshifts, boxsize)
+        fg_lightcone, frequencies, sky_size = self.add_foregrounds(sky_cells, redshifts, boxsize)
 
-        # Replace the EoR lightcone with the new lightcone
-        ctx.get("output").lightcone_box = new_lightcone
-#        ctx.add("foreground_lightcone", new_lightcone)
+        if eor is None:
+            ctx.add("output", LightCone(redshifts, fg_lightcone, fg_lightcone.shape[0], boxsize))
+            print("Added lightcone")
+            ctx.get('output').redshifts_slices = redshifts
+        else:
+            # Replace the EoR lightcone with the new lightcone
+            # Make sure we convert from mK to Jy before summing!
+            eor_lightcone *= self.conversion_factor_K_to_Jy()
+            ctx.get("output").lightcone_box += fg_lightcone
+
         ctx.add("frequencies", frequencies)
         ctx.add("sky_size", sky_size)
 
-    def add_foregrounds(self, lightcone, redshifts, boxsize):
+    def add_foregrounds(self, sky_cells, redshifts, boxsize):
         """
         A function which creates foregrounds (both point-sources and diffuse) and adds them to an existing lightcone.
         It also changes the units from mK to Jy/sr.
 
         Parameters
         ----------
-        lightcone : (ncells,ncells, nredshifts)-array
-            The EoR signal lightcone output by 21cmFAST
+        sky_cells : int
+            The number of cells on the sky grid (not into the sky).
         
         redshifts : (nredshifts,)-array
             The redshifts (instead of comoving distance) corresponding to each slice of EoR lightcone
@@ -76,7 +102,7 @@ class CoreForegrounds:
 
         Returns
         -------
-        sky : (ncells, ncells, nredshifts)-array
+        sky : (sky_cells, sky_cells, nredshifts)-array
             A box containing both the EoR signal and the foregrounds, in units of Jy/sr
         
         frequencies : (nredshifts,)-array
@@ -87,7 +113,7 @@ class CoreForegrounds:
         
         """
         # Number of 2D cells in sky array
-        sky_cells = lightcone.shape[0]
+        # sky_cells = lightcone.shape[0]
 
         # Convert the boxsize from Mpc to radian
         # IF USING SMALL BOX, THIS IS WHERE WE DO STITCHING!!!
@@ -95,6 +121,8 @@ class CoreForegrounds:
 
         # Note, don't flip the frequencies here, rather do it only when necessary.
         frequencies = 1420e6 / (redshifts + 1)
+
+        lightcone = np.zeros((sky_cells, sky_cells, len(redshifts)))
 
         if self.add_diffuse:
             # We add it here, because it's easier to add in mK
@@ -299,7 +327,7 @@ class CoreForegrounds:
 
 class CoreInstrumental:
     def __init__(self, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=150.0,
-                 integration_time=1200):
+                 integration_time=1200, Tsys = 0):
         """
         Core MCMC class which converts 21cmFAST *lightcone* output into a mock observation, sampled at specific baselines.
 
@@ -332,6 +360,7 @@ class CoreInstrumental:
         self.tile_diameter = tile_diameter * un.m
         self.max_bl_length = max_bl_length
         self.integration_time = integration_time
+        self.Tsys = Tsys
 
     def setup(self):
         """
@@ -364,7 +393,7 @@ class CoreInstrumental:
         """
         lightcone = ctx.get("output").lightcone_box
         boxsize = ctx.get("output").box_len
-        redshifts = ctx.get("output").redshifts
+        redshifts = ctx.get("output").redshifts_slices
 
         # Try getting the frequencies and sky size, but if they don't exist, just calculate them.
         frequencies = ctx.get("frequencies", 1420e6/(1+redshifts))
@@ -401,7 +430,7 @@ class CoreInstrumental:
         frequencies = self.instrumental_frequencies
 
         # Add thermal noise
-        visibilities = self.add_thermal_noise(visibilities, frequencies, self.integration_time)
+        visibilities = self.add_thermal_noise(visibilities, frequencies, self.integration_time, Tsys=self.Tsys)
 
         return visibilities
 
@@ -541,9 +570,11 @@ class CoreInstrumental:
         """
         new_vis = np.zeros((visibilities.shape[0], len(linear_freq)), dtype=np.complex64)
 
+        print(freq_grid/1e6)
+        print(linear_freq/1e6)
         for i, vis in enumerate(visibilities):
-            rl = RegularGridInterpolator((freq_grid,), np.real(vis))(linear_freq)
-            im = RegularGridInterpolator((freq_grid,), np.imag(vis))(linear_freq)
+            rl = RegularGridInterpolator((freq_grid[::-1],), np.real(vis)[::-1])(linear_freq)
+            im = RegularGridInterpolator((freq_grid[::-1],), np.imag(vis)[::-1])(linear_freq)
             new_vis[i] = rl + im * 1j
 
         return new_vis
@@ -574,7 +605,7 @@ class CoreInstrumental:
         return np.array([Xsep.flatten()[np.logical_not(zeros)], Ysep.flatten()[np.logical_not(zeros)]]).T
 
     @staticmethod
-    def add_thermal_noise(visibilities, frequencies, delta_t = 1200):
+    def add_thermal_noise(visibilities, frequencies, delta_t = 1200, Tsys=0):
         """
         Add thermal noise to each visibility.
 
@@ -593,7 +624,7 @@ class CoreInstrumental:
         -------
 
         """
-        sigma = 20e3 / np.sqrt((frequencies.max()-frequencies.min())*delta_t)
+        sigma = Tsys / np.sqrt((frequencies.max()-frequencies.min())*delta_t)
         
         rl = np.random.normal(np.mean(np.real(visibilities)), np.std(np.real(visibilities)))
         im = np.random.normal(np.mean(np.imag(visibilities)), np.std(np.imag(visibilities)))
