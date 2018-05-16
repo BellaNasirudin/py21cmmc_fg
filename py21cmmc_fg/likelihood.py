@@ -18,16 +18,43 @@ from cosmoHammer.ChainContext import ChainContext
 from cosmoHammer.util import Params
 from .core import CoreForegrounds
 
-class LikelihoodForeground2D(LikelihoodBase):
-    """
-    This likelihood only works when instrument-like visibilities are in the context (eg. use CoreInstrumentalSampling)
-    """
 
-    def __init__(self, datafile, n_uv=None, n_psbins=50, **kwargs):
+class LikelihoodForeground2D(LikelihoodBase):
+    def __init__(self, datafile, n_uv=None, n_psbins=50, umax = None,**kwargs):
+        """
+        A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
+
+        In this likelihood, any foregrounds are naturally suppressed by their imposed covariance, in 2D spectral space.
+        Nevertheless, it is not required that the :class:`~core.CoreForeground` class be amongst the Core modules for
+        this likelihood module to work. Without the foregrounds, the 2D modes are naturally weighted by the sample
+        variance of the EoR signal itself.
+
+        The likelihood *does* require the :class:`~core.CoreInstrumental` Core module however, as this class first
+        re-grids the input visibilities from baselines onto a grid.
+
+        Parameters
+        ----------
+        datafile : str
+            A filename referring to a file which contains the observed data (or mock data) to be fit to. The file
+            should be a compressed numpy binary (i.e. a npz file), and must contain at least the arrays "kpar", "kperp"
+            and "p", which are the parallel/perpendicular modes (in 1/Mpc) and power spectrum (in Mpc^3) respectively.
+
+        n_uv : int, optional
+            The number of UV cells to grid the visibilities (per side). By default, tries to look at the 21cmFAST
+            simulation and use the same number of grid cells as that.
+
+        n_psbins : int, optional
+            The number of kperp bins to use.
+
+        umax : float, optional
+            The extent of the UV grid. By default, uses the longest baseline at the highest frequency.
+        """
+
         super().__init__(**kwargs)
         self.datafile = datafile
         self.n_uv = n_uv
         self.n_psbins = n_psbins
+        self.umax = umax
 
     def setup(self):
         """
@@ -37,7 +64,8 @@ class LikelihoodForeground2D(LikelihoodBase):
         """
         data = np.load(self.datafile +".npz")
         
-        self.k = data["k"]
+        self.kpar = data["kpar"]
+        self.kperp = data['kperp']
         self.power = data["p"]
 
     def computeLikelihood(self, ctx):
@@ -75,7 +103,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         n_uv = self.n_uv or ctx.get("output").lightcone_box.shape[0]
 
         # Compute 2D power.
-        ugrid, visgrid, weights = self.grid(visibilities, baselines, frequencies, n_uv)
+        ugrid, visgrid, weights = self.grid(visibilities, baselines, frequencies, n_uv, self.umax)
         visgrid, eta = self.frequency_fft(visgrid, frequencies)
         power2d, coords = self.get_2d_power(visgrid, [ugrid, ugrid, eta], weights, frequencies, bins=self.n_psbins)
 
@@ -166,7 +194,7 @@ class LikelihoodForeground2D(LikelihoodBase):
     #     return P_1D, uncertainty_1D
 
     @staticmethod
-    def grid(visibilities, baselines, frequencies, ngrid):
+    def grid(visibilities, baselines, frequencies, ngrid, umax=None):
         """
         Grid a set of visibilities from baselines onto a UV grid.
 
@@ -199,8 +227,8 @@ class LikelihoodForeground2D(LikelihoodBase):
         weights : (ngrid, ngrid, n_freq)-array
             The weights of the visibility grid (i.e. how many baselines contributed to each).
         """
-        # TODO: may be better to leave this optional for user.
-        umax = max([np.abs(b).max() for b in baselines]) * frequencies.max()/const.c
+        if umax is None:
+            umax = max([np.abs(b).max() for b in baselines]) * frequencies.max()/const.c
 
         ugrid = np.linspace(-umax, umax, ngrid+1) # +1 because these are bin edges.
         visgrid = np.zeros((ngrid, ngrid, len(frequencies)), dtype=np.complex128)
