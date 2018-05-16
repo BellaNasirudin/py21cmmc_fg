@@ -120,7 +120,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         # Compute 2D power.
         ugrid, visgrid, weights = self.grid(visibilities, baselines, frequencies, n_uv, self.umax)
         visgrid, eta = self.frequency_fft(visgrid, frequencies)
-        power2d, coords = self.get_2d_power(visgrid, [ugrid, ugrid, eta], weights, frequencies, bins=self.n_psbins)
+        power2d, coords = self.get_2d_power(visgrid, [ugrid, ugrid, eta], weights, frequencies.min(), frequencies.max(), bins=self.n_psbins)
 
         return power2d, coords
 
@@ -156,20 +156,18 @@ class LikelihoodForeground2D(LikelihoodBase):
         coords : list of 2 1D arrays
             The first value is the coordinates of k_perp (in 1/Mpc), and the second is k_par (in 1/Mpc).
         """
-        print("Finding the power spectrum")
-
         # Change the units of coords to Mpc
         z_mid = 1420e6 / (nu_min+nu_max)/2 - 1
         coords[0] *= 2 * np.pi / cosmo.comoving_transverse_distance([z_mid])
         coords[1] *= 2 * np.pi / cosmo.comoving_transverse_distance([z_mid])
-        coords[2] *= 2 * np.pi * cosmo.H0.to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(
+        coords[2] = 2 * np.pi * coords[2] * cosmo.H0.to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(
             z_mid) / (const.c * (1 + z_mid) ** 2)
 
         # The 3D power spectrum
         power_3d = np.absolute(fourier_vis) ** 2
 
         # Generate the radial bins and coords
-        radial_bins = np.linspace(0, np.sqrt(2 * np.max(coords[0].value) ** 2), bins)
+        radial_bins = np.linspace(0, np.sqrt(2 * np.max(coords[0].value) ** 2), bins+1)
         u, v = np.meshgrid(coords[0], coords[1])
 
         # Initialize the power and 2d weights.
@@ -179,18 +177,19 @@ class LikelihoodForeground2D(LikelihoodBase):
         # Determine which radial bin each cell lies in.
         bin_indx = np.digitize((u.value ** 2 + v.value ** 2), bins=radial_bins ** 2) - 1
 
+        print(bin_indx.shape)
         # Average within radial bins, weighting with weights.
         for i in range(len(coords[2])):
-            P[i, :] = np.bincount(bin_indx, weights=weights[:, :, i]*power_3d[:, :, i].flatten())
-            bins[i, :] = np.bincount(bin_indx, weights=weights[:, :, i])
+            P[i, :] = np.bincount(bin_indx.flatten(), weights=(weights[:, :, i]*power_3d[:, :, i]).flatten())
+            bins[i, :] = np.bincount(bin_indx.flatten(), weights=weights[:, :, i].flatten())
         P[bins > 0] = P[bins > 0] / bins[bins > 0]
 
         # Convert the units of the power into Mpc**6
-        P /= (self.convert_factor_sources() * self.hz_to_mpc(nu_min, nu_max) * self.sr_to_mpc2(z_mid)) ** 2
+        P /= ((CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(nu_min, nu_max) * self.sr_to_mpc2(z_mid)) ** 2).value
         P /= self.volume(z_mid, nu_min, nu_max)
 
         # TODO: In here we also need to calculate the VARIANCE of the power!!
-        return P.value, [radial_bins, coords[2].value]
+        return P, [(radial_bins[1:]+radial_bins[:-1])/2, coords[2].value]
 
     # def suppressedFg_1DPower(self, bins = 20):
     #
@@ -230,6 +229,9 @@ class LikelihoodForeground2D(LikelihoodBase):
         ngrid : int
             The number of grid cells to form in the grid, per side. Note that the grid will extend to the longest
             baseline.
+
+        umax : float, optional
+            The extent of the UV grid. By default, uses the longest baseline at the highest frequency.
 
         Returns
         -------
@@ -289,8 +291,8 @@ class LikelihoodForeground2D(LikelihoodBase):
             The eta-coordinates, without negative values.
         """
         ft, eta =fft(vis, (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)
-        ft = ft[:,:, len(freq)/2:]
-        return ft, eta[0][len(freq)/2:]
+        ft = ft[:,:, (int(len(freq)/2)+1):]
+        return ft, eta[0][(int(len(freq)/2)+1):]
 
     @staticmethod
     def hz_to_mpc(nu_min, nu_max):

@@ -2,3 +2,5 @@
 \.idea/
 
 *.pyc
+
+devel/\.ipynb_checkpoints/
