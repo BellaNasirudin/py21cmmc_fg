@@ -139,12 +139,9 @@ class CoreForegrounds:
         # Generate the point sources foregrounds and
         # TODO: this has no dependence on spectral index!!!
         if self.add_point_sources:
-            lightcone += np.repeat(
-                self.point_sources(
+            lightcone += self.point_sources(
                     frequencies=frequencies, sky_cells = sky_cells, sky_size=sky_size, **self.pt_source_params
-                ),
-                np.shape(lightcone)[2], axis=2
-            )
+                )
 
         return lightcone, frequencies, sky_size
 
@@ -229,15 +226,13 @@ class CoreForegrounds:
         pos = np.rint(np.random.uniform(0, sky_cells - 1, size=(N_sources, 2))).astype(int)
 
         ## Grid the fluxes at nu = 150
-        S_0 = np.histogram2d(pos[0], pos[1], bins = np.arange(0, sky_cells+1, 1), weights = S_0)
+        S_0 = np.histogram2d(pos[:,0], pos[:,1], bins = np.arange(0, sky_cells+1, 1), weights = S_0)
         
         ## Find the fluxes at different frequencies based on spectral index
-        sky = np.outer(S_0, (frequencies/f0)**(-gamma)).reshape((np.shape(S_0)[0],np.shape(S_0)[0],len(frequencies)))
+        sky = np.outer(S_0[0], (frequencies/f0)**(-gamma)).reshape((np.shape(S_0[0])[0],np.shape(S_0[0])[0],len(frequencies)))
 
         # Divide by area of each sky cell; Jy/sr
         sky /= (sky_size / sky_cells)**2
-        import sys
-        sys.exit(0)
 
         return sky
 
@@ -628,10 +623,9 @@ class CoreInstrumental:
         """
         sigma = Tsys / np.sqrt((frequencies.max()-frequencies.min())*delta_t)
         
-        rl = np.random.normal(np.mean(np.real(visibilities)), np.std(np.real(visibilities)))
-        im = np.random.normal(np.mean(np.imag(visibilities)), np.std(np.imag(visibilities)))
+        rl_im = np.random.normal(0, 1, 2)
         
         # TODO: check the units of sigma 
-        visibilities += sigma * (rl + im * 1j)
+        visibilities += sigma * (rl_im[0] + rl_im[1] * 1j)
         
         return visibilities
