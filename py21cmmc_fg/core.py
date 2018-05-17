@@ -189,7 +189,7 @@ class CoreForegrounds:
     #     return interpData, linFrequencies
 
     @staticmethod
-    def point_sources(frequencies, sky_cells, sky_size, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59):
+    def point_sources(frequencies, sky_cells, sky_size, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8,f0=150):
         """
         Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
         model.
@@ -224,18 +224,20 @@ class CoreForegrounds:
         N_sources = np.random.poisson(n_bar)
 
         # Generate the point sources in unit of Jy and position using uniform distribution
-        fluxes = ((S_max ** (1 - beta) - S_min ** (1 - beta)) * np.random.uniform(size=N_sources) + S_min ** (
+        S_0 = ((S_max ** (1 - beta) - S_min ** (1 - beta)) * np.random.uniform(size=N_sources) + S_min ** (
                     1 - beta)) ** (1 / (1 - beta))
         pos = np.rint(np.random.uniform(0, sky_cells - 1, size=(N_sources, 2))).astype(int)
 
-        # Create an empty array and fill it up by adding the point sources
-        sky = np.zeros((sky_cells, sky_cells, 1))
-
-        for ii in range(N_sources):
-            sky[pos[ii, 0], pos[ii, 1]] += fluxes[ii]
+        ## Grid the fluxes at nu = 150
+        S_0 = np.histogram2d(pos[0], pos[1], bins = np.arange(0, sky_cells+1, 1), weights = S_0)
+        
+        ## Find the fluxes at different frequencies based on spectral index
+        sky = np.outer(S_0, (frequencies/f0)**(-gamma)).reshape((np.shape(S_0)[0],np.shape(S_0)[0],len(frequencies)))
 
         # Divide by area of each sky cell; Jy/sr
         sky /= (sky_size / sky_cells)**2
+        import sys
+        sys.exit(0)
 
         return sky
 
