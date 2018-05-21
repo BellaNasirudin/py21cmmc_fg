@@ -58,9 +58,10 @@ plt.imshow(np.log10(p), origin='lower', aspect='auto', extent=(k[0][0], k[0][-1]
 plt.xscale('log')
 plt.yscale('log')
 plt.colorbar()
-
-plt.imshow(ctx.get("output").lightcone_box[:,:,0])
-plt.colorbar()
+plt.savefig("power_spectrum.png")
+sys.exit(0)
+#plt.imshow(ctx.get("output").lightcone_box[:,:,0])
+#plt.colorbar()
 
 p = [0]*30
 for i in range(30):
@@ -72,3 +73,5 @@ mean = np.mean(p,axis=0)
 cov = np.cov(p)
 
 plt.imshow(np.log10(cov.T))
+plt.colorbar()
+plt.savefig("covariance1.png")

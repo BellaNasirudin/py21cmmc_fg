@@ -5,6 +5,7 @@ Created on Fri Apr 20 16:54:22 2018
 
 @author: bella
 """
+from builtins import super
 
 from powerbox.dft import fft
 from powerbox.tools import angular_average_nd
@@ -13,7 +14,7 @@ from astropy import constants as const
 from astropy.cosmology import Planck15 as cosmo
 from astropy import units as un
 
-from py21cmmc.likelihood import LikelihoodBase, Core21cmFastModule
+from py21cmmc.likelihood import LikelihoodBase#, Core21cmFastModule
 from cosmoHammer.ChainContext import ChainContext
 from cosmoHammer.util import Params
 from .core import CoreForegrounds
@@ -116,9 +117,10 @@ class LikelihoodForeground2D(LikelihoodBase):
         baselines = ctx.get('baselines')
         frequencies = ctx.get("frequencies")
         n_uv = self.n_uv or ctx.get("output").lightcone_box.shape[0]
-
+                
         # Compute 2D power.
         ugrid, visgrid, weights = self.grid(visibilities, baselines, frequencies, n_uv, self.umax)
+
         visgrid, eta = self.frequency_fft(visgrid, frequencies)
         power2d, coords = self.get_2d_power(visgrid, [ugrid, ugrid, eta], weights, frequencies.min(), frequencies.max(), bins=self.n_psbins)
 

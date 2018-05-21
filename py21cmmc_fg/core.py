@@ -131,7 +131,6 @@ class CoreForegrounds:
         # Change the units of brightness temperature from mK to Jy/sr
         lightcone *= self.conversion_factor_K_to_Jy()
 
-
         # Interpolate linearly in frequency (POSSIBLY IN RADIAN AS WELL)
         # TODO: I don't think we need to do this, as we can interpolate in the Instrumenal class.
         # linLightcone, linFrequencies = self.interpolate_freqs(EoR_lightcone, frequencies)
@@ -142,6 +141,7 @@ class CoreForegrounds:
             lightcone += self.point_sources(
                     frequencies=frequencies, sky_cells = sky_cells, sky_size=sky_size, **self.pt_source_params
                 )
+
 
         return lightcone, frequencies, sky_size
 
@@ -186,7 +186,7 @@ class CoreForegrounds:
     #     return interpData, linFrequencies
 
     @staticmethod
-    def point_sources(frequencies, sky_cells, sky_size, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8,f0=150):
+    def point_sources(frequencies, sky_cells, sky_size, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8,f0=150e6):
         """
         Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
         model.
@@ -224,12 +224,13 @@ class CoreForegrounds:
         S_0 = ((S_max ** (1 - beta) - S_min ** (1 - beta)) * np.random.uniform(size=N_sources) + S_min ** (
                     1 - beta)) ** (1 / (1 - beta))
         pos = np.rint(np.random.uniform(0, sky_cells - 1, size=(N_sources, 2))).astype(int)
-
+        
         ## Grid the fluxes at nu = 150
         S_0 = np.histogram2d(pos[:,0], pos[:,1], bins = np.arange(0, sky_cells+1, 1), weights = S_0)
-        
+        S_0 = S_0[0]
+
         ## Find the fluxes at different frequencies based on spectral index
-        sky = np.outer(S_0[0], (frequencies/f0)**(-gamma)).reshape((np.shape(S_0[0])[0],np.shape(S_0[0])[0],len(frequencies)))
+        sky = np.outer(S_0, (frequencies/f0)**(-gamma)).reshape((np.shape(S_0)[0],np.shape(S_0)[0],len(frequencies)))
 
         # Divide by area of each sky cell; Jy/sr
         sky /= (sky_size / sky_cells)**2
@@ -375,7 +376,6 @@ class CoreInstrumental:
             else:
                 ant_pos = np.genfromtxt(self.antenna_posfile, float)
 
-
             # Find all the possible combination of tile displacement
             # baselines is a dim2 array of x and y displacements.
             self.baselines = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2]) * un.m
@@ -394,6 +394,7 @@ class CoreInstrumental:
 
         # Try getting the frequencies and sky size, but if they don't exist, just calculate them.
         frequencies = ctx.get("frequencies", 1420e6/(1+redshifts))
+
         sky_size = ctx.get("sky_size", CoreForegrounds.get_sky_size(boxsize, redshifts))
 
         vis = self.add_instrument(lightcone, frequencies, sky_size)
@@ -405,10 +406,11 @@ class CoreInstrumental:
     def add_instrument(self, lightcone, frequencies, sky_size):
         # Number of 2D cells in sky array
         sky_cells = np.shape(lightcone)[0]
-
+        
+        print("loaded lightcone", lightcone.max())
         # Add the beam attenuation
         beam_sky = lightcone * self.beam(frequencies, sky_cells, sky_size, self.tile_diameter)
-
+        print("attenuated sky", beam_sky.max())
         # Fourier transform image plane to UV plane.
         uvplane, uv = self.image_to_uv(beam_sky, sky_size)
 
@@ -567,8 +569,6 @@ class CoreInstrumental:
         """
         new_vis = np.zeros((visibilities.shape[0], len(linear_freq)), dtype=np.complex64)
 
-        print(freq_grid/1e6)
-        print(linear_freq/1e6)
         for i, vis in enumerate(visibilities):
             rl = RegularGridInterpolator((freq_grid[::-1],), np.real(vis)[::-1])(linear_freq)
             im = RegularGridInterpolator((freq_grid[::-1],), np.imag(vis)[::-1])(linear_freq)
