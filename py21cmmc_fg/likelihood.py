@@ -11,7 +11,7 @@ from powerbox.dft import fft
 from powerbox.tools import angular_average_nd
 import numpy as np
 from astropy import constants as const
-from astropy.cosmology import Planck15 as cosmo
+from astropy.cosmology import FlatLambdaCDM
 from astropy import units as un
 
 from py21cmmc.likelihood import LikelihoodBase#, Core21cmFastModule
@@ -74,6 +74,9 @@ class LikelihoodForeground2D(LikelihoodBase):
         # This just monitors whether we've check the k dimensions.
         self._checked = False
 
+        # Make a cosmology consistent with the box parameters.
+        self.cosmo = FlatLambdaCDM(H0=100 * self.cosmo_params.hlittle, Om0=self.cosmo_params.OMm, Ob0=self.cosmo_params.OMb)
+
     def computeLikelihood(self, ctx):
 
         p, k = self.computePower(ctx)
@@ -117,7 +120,10 @@ class LikelihoodForeground2D(LikelihoodBase):
         baselines = ctx.get('baselines')
         frequencies = ctx.get("frequencies")
         n_uv = self.n_uv or ctx.get("output").lightcone_box.shape[0]
-                
+
+        # Update the cosmology object to be consistent with the box.
+
+
         # Compute 2D power.
         ugrid, visgrid, weights = self.grid(visibilities, baselines, frequencies, n_uv, self.umax)
 
@@ -160,9 +166,9 @@ class LikelihoodForeground2D(LikelihoodBase):
         """
         # Change the units of coords to Mpc
         z_mid = 1420e6 / (nu_min+nu_max)/2 - 1
-        coords[0] *= 2 * np.pi / cosmo.comoving_transverse_distance([z_mid])
-        coords[1] *= 2 * np.pi / cosmo.comoving_transverse_distance([z_mid])
-        coords[2] = 2 * np.pi * coords[2] * cosmo.H0.to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(
+        coords[0] *= 2 * np.pi / self.cosmo.comoving_transverse_distance([z_mid])
+        coords[1] *= 2 * np.pi / self.cosmo.comoving_transverse_distance([z_mid])
+        coords[2] = 2 * np.pi * coords[2] * self.cosmo.H0.to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * self.cosmo.efunc(
             z_mid) / (const.c * (1 + z_mid) ** 2)
 
         # The 3D power spectrum
@@ -187,8 +193,8 @@ class LikelihoodForeground2D(LikelihoodBase):
         P[bins > 0] = P[bins > 0] / bins[bins > 0]
 
         # Convert the units of the power into Mpc**6
-        P /= ((CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(nu_min, nu_max) * self.sr_to_mpc2(z_mid)) ** 2).value
-        P /= self.volume(z_mid, nu_min, nu_max)
+        P /= ((CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(nu_min, nu_max, self.cosmo) * self.sr_to_mpc2(z_mid, cosmo)) ** 2).value
+        P /= self.volume(z_mid, nu_min, nu_max, cosmo)
 
         # TODO: In here we also need to calculate the VARIANCE of the power!!
         return P, [(radial_bins[1:]+radial_bins[:-1])/2, coords[2].value]
@@ -297,7 +303,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         return ft, eta[0][(int(len(freq)/2)+1):]
 
     @staticmethod
-    def hz_to_mpc(nu_min, nu_max):
+    def hz_to_mpc(nu_min, nu_max, cosmo):
         """
         Convert a frequency range in Hz to a distance range in Mpc.
         """
@@ -307,7 +313,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         return (cosmo.comoving_distance(z_max) - cosmo.comoving_distance(z_min)) / (nu_max - nu_min)
 
     @staticmethod
-    def sr_to_mpc2(z):
+    def sr_to_mpc2(z, cosmo):
         """
         Conversion factor from steradian to Mpc^2 at a given redshift.
         Parameters
@@ -321,7 +327,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         return cosmo.comoving_distance(z) / (1 * un.sr)
 
     @staticmethod
-    def volume(z_mid, nu_min, nu_max, A_eff=20):
+    def volume(z_mid, nu_min, nu_max, cosmo, A_eff=20):
         """
         Calculate the effective volume of an observation in Mpc**3, when co-ordinates are provided in Hz.
 

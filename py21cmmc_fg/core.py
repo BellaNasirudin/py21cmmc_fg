@@ -11,7 +11,7 @@ Foreground core for 21cmmc
 from scipy.integrate import quad
 import numpy as np
 from astropy import constants as const
-from astropy.cosmology import Planck15 as cosmo  # TODO: this is not quite correct, if we pass cosmo parameters.
+from astropy.cosmology import FlatLambdaCDM
 from astropy import units as un
 from scipy.interpolate import RegularGridInterpolator
 from powerbox.dft import fft
@@ -69,7 +69,9 @@ class CoreForegrounds:
             boxsize = self.boxsize
             sky_cells = self.sky_cells
 
-        fg_lightcone, frequencies, sky_size = self.add_foregrounds(sky_cells, redshifts, boxsize)
+        csm = ctx.get("cosmo_params")
+        cosmo = FlatLambdaCDM(H0=100 * csm.hlittle, Om0=csm.OMm, Ob0=csm.OMb)
+        fg_lightcone, frequencies, sky_size = self.add_foregrounds(sky_cells, redshifts, boxsize, cosmo)
 
         if eor is None:
             ctx.add("output", LightCone(redshifts, fg_lightcone, fg_lightcone.shape[0], boxsize))
@@ -84,7 +86,7 @@ class CoreForegrounds:
         ctx.add("frequencies", frequencies)
         ctx.add("sky_size", sky_size)
 
-    def add_foregrounds(self, sky_cells, redshifts, boxsize):
+    def add_foregrounds(self, sky_cells, redshifts, boxsize, cosmo):
         """
         A function which creates foregrounds (both point-sources and diffuse) and adds them to an existing lightcone.
         It also changes the units from mK to Jy/sr.
@@ -117,7 +119,7 @@ class CoreForegrounds:
 
         # Convert the boxsize from Mpc to radian
         # IF USING SMALL BOX, THIS IS WHERE WE DO STITCHING!!!
-        sky_size = self.get_sky_size(boxsize, redshifts)
+        sky_size = self.get_sky_size(boxsize, redshifts, cosmo)
 
         # Note, don't flip the frequencies here, rather do it only when necessary.
         frequencies = 1420e6 / (redshifts + 1)
@@ -142,48 +144,11 @@ class CoreForegrounds:
                     frequencies=frequencies, sky_cells = sky_cells, sky_size=sky_size, **self.pt_source_params
                 )
 
-
         return lightcone, frequencies, sky_size
 
     @staticmethod
-    def get_sky_size(boxsize, redshifts):
+    def get_sky_size(boxsize, redshifts, cosmo):
         return 2 * np.arctan(boxsize / (2 * cosmo.comoving_transverse_distance([np.mean(redshifts)]).value))
-
-
-    # def interpolate_freqs(self, data, frequencies, uv_range=100):
-    #     """
-    #     Interpolate the irregular frequencies so that they are linearly-spaced
-    #     """
-    #
-    #     linFrequencies = np.linspace(np.min(frequencies), np.max(frequencies), data.shape[2])
-    #
-    #     ncells = np.shape(data)[0]
-    #     # Create the xy data
-    #     xy = np.linspace(-uv_range, uv_range, ncells)
-    #
-    #     # generate the interpolation function
-    #     func = RegularGridInterpolator([xy, xy, frequencies], data, bounds_error=False, fill_value=0)
-    #
-    #     # Create a meshgrid to interpolate the points
-    #     XY, YX, LINZREDS = np.meshgrid(xy, xy, linFrequencies)
-    #
-    #     # Flatten the arrays so the can be put into pts array
-    #     XY = XY.flatten()
-    #     YX = YX.flatten()
-    #     LINZREDS = LINZREDS.flatten()
-    #
-    #     # Create the points to interpolate
-    #     numpts = XY.size
-    #     pts = np.zeros([numpts, 3])
-    #     pts[:, 0], pts[:, 1], pts[:, 2] = XY, YX, LINZREDS
-    #
-    #     # Interpolate the points
-    #     interpData = func(pts)
-    #
-    #     # Reshape the data
-    #     interpData = interpData.reshape(ncells, ncells, len(linFrequencies))
-    #
-    #     return interpData, linFrequencies
 
     @staticmethod
     def point_sources(frequencies, sky_cells, sky_size, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8,f0=150e6):
