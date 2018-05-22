@@ -18,7 +18,7 @@ from py21cmmc.likelihood import LikelihoodBase
 from py21cmmc.core import Core21cmFastModule
 from cosmoHammer.ChainContext import ChainContext
 from cosmoHammer.util import Params
-from .core import CoreForegrounds
+from .core import CoreInstrumental
 
 
 class LikelihoodForeground2D(LikelihoodBase):
@@ -121,6 +121,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         # Read in data from ctx
         visibilities = ctx.get("visibilities")
         baselines = ctx.get('baselines')
+        sigma = ctx.get("sigma")
         frequencies = ctx.get("frequencies")
         n_uv = self.n_uv or ctx.get("output").lightcone_box.shape[0]
         cosmo = ctx.get("output").cosmo
@@ -207,6 +208,13 @@ class LikelihoodForeground2D(LikelihoodBase):
         # P /= self.volume(z_mid, nu_min, nu_max, cosmo)
 
         return P, [radial_bins, coords[2]], var
+
+        # Convert the units of the power into Mpc**6
+        P /= ((CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(nu_min, nu_max) * self.sr_to_mpc2(z_mid)) ** 2).value
+        P /= self.volume(z_mid, nu_min, nu_max)
+
+        # TODO: In here we also need to calculate the VARIANCE of the power!!
+        return P, [(radial_bins[1:]+radial_bins[:-1])/2, coords[2].value]
 
     # def suppressedFg_1DPower(self, bins = 20):
     #
@@ -340,7 +348,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         return cosmo.comoving_distance(z) / (1 * un.sr)
 
     @staticmethod
-    def volume(z_mid, nu_min, nu_max, cosmo, A_eff=20):
+    def volume(z_mid, nu_min, nu_max, A_eff=20):
         """
         Calculate the effective volume of an observation in Mpc**3, when co-ordinates are provided in Hz.
 
@@ -365,13 +373,12 @@ class LikelihoodForeground2D(LikelihoodBase):
         How is this actually calculated? What assumptions are made?
         """
         # TODO: fix the notes in the docs above.
-        # TODO: the taper probably should be applied in here.
 
         diff_nu = nu_max - nu_min
 
         G_z = (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(z_mid) / (const.c * (1 + z_mid) ** 2)
 
-        Vol = const.c ** 2 / (A_eff * un.m ** 2 * nu_max * (1 / un.s) ** 2) * diff_nu * (
+        Vol = const.c ** 2 / (sigma * un.m ** 2 * nu_max * (1 / un.s) ** 2) * diff_nu * (
                     1 / un.s) * cosmo.comoving_distance([z_mid]) ** 2 / (G_z)
 
         return Vol.value

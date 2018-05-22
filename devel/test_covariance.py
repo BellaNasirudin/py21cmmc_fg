@@ -53,7 +53,7 @@ fg_core(ctx)
 instr_core(ctx)
 
 p, k = lk.computePower(ctx)
-
+print(p)
 plt.imshow(np.log10(p), origin='lower', aspect='auto', extent=(k[0][0], k[0][-1], k[1][0], k[1][-1]))
 plt.xscale('log')
 plt.yscale('log')

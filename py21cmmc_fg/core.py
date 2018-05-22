@@ -81,8 +81,6 @@ class CoreForegrounds:
             ctx.get('output').redshifts_slices = redshifts
         else:
             # Replace the EoR lightcone with the new lightcone
-            # Make sure we convert from mK to Jy before summing!
-            eor_lightcone *= self.conversion_factor_K_to_Jy()
             ctx.get("output").lightcone_box += fg_lightcone
 
         ctx.add("frequencies", frequencies)
@@ -132,10 +130,7 @@ class CoreForegrounds:
             # We add it here, because it's easier to add in mK
             lightcone += self.diffuse(frequencies, sky_cells, sky_size, **self.diffuse_params)
 
-        # Change the units of brightness temperature from mK to Jy/sr
-        lightcone *= self.conversion_factor_K_to_Jy()
-
-        # Generate the point sources foregrounds.
+        # Generate the point sources foregrounds in mK and add to lightcone
         if self.add_point_sources:
             lightcone += self.point_sources(
                     frequencies=frequencies, sky_cells = sky_cells, sky_size=sky_size, **self.pt_source_params
@@ -191,11 +186,12 @@ class CoreForegrounds:
         S_0 = np.histogram2d(pos[:,0], pos[:,1], bins = np.arange(0, sky_cells+1, 1), weights = S_0)
         S_0 = S_0[0]
 
-        ## Find the fluxes at different frequencies based on spectral index
+        ## Find the fluxes at different frequencies based on spectral index and divide by cell area
         sky = np.outer(S_0, (frequencies/f0)**(-gamma)).reshape((np.shape(S_0)[0],np.shape(S_0)[0],len(frequencies)))
-
-        # Divide by area of each sky cell; Jy/sr
         sky /= (sky_size / sky_cells)**2
+
+        # Change the unit from Jy/sr to mK
+        sky /= CoreInstrumental.conversion_factor_K_to_Jy(frequencies)
 
         return sky
 
@@ -254,35 +250,6 @@ class CoreForegrounds:
                 Tbins[:, :, i] = Tbar[i]
 
         return Tbins
-
-    @staticmethod
-    def conversion_factor_K_to_Jy(nu=None):
-        """
-
-        Parameters
-        ----------
-        nu : float array, optional
-            The frequencies of the observation
-
-        Returns
-        -------
-        conversion_factor : float or array
-            The conversion factor(s) (per frequency) which convert temperature in Kelvin to flux density in Jy.
-
-        """
-        # Can either do it with the beam or without the beam (frequency dependent)
-        if nu is None:
-            # TODO: unfortunately, this is instrument-dependent and so should really go in the instrumental core
-            A_eff = 20 * un.m ** 2
-
-            flux_density = (2 * 1e26 * const.k_B * 1e-3 * un.K / (A_eff * (1 * un.Hz) * (1 * un.s))).to(
-                un.W / (un.Hz * un.m ** 2))
-
-        else:
-            flux_density = (2 * const.k_B * 1e-3 * un.K / (((const.c) / (nu.to(1 / un.s))) ** 2) * 1e26).to(
-                un.W / (un.Hz * un.m ** 2))
-
-        return flux_density.value
 
 
 class CoreInstrumental:
@@ -361,7 +328,7 @@ class CoreInstrumental:
         sky_size = ctx.get("sky_size", CoreForegrounds.get_sky_size(boxsize, redshifts, cosmo))
 
         vis = self.add_instrument(lightcone, frequencies, sky_size)
-
+        
         ctx.add("visibilities", vis)
         ctx.add("baselines", self.baselines)
         ctx.add("frequencies", self.instrumental_frequencies)
@@ -370,10 +337,14 @@ class CoreInstrumental:
         # Number of 2D cells in sky array
         sky_cells = np.shape(lightcone)[0]
         
-        print("loaded lightcone", lightcone.max())
-        # Add the beam attenuation
-        beam_sky = lightcone * self.beam(frequencies, sky_cells, sky_size, self.tile_diameter)
-        print("attenuated sky", beam_sky.max())
+        # Find beam attenuation
+        attenuation = self.beam(frequencies, sky_cells, sky_size, self.tile_diameter)
+        beam_area = np.sum(attenuation, axis=(0,1))
+
+        # Change the units of lightcone from mK to Jy
+        beam_sky = lightcone * self.conversion_factor_K_to_Jy(frequencies, beam_area) * attenuation
+                                                               
+        print("attenuated sky")
         # Fourier transform image plane to UV plane.
         uvplane, uv = self.image_to_uv(beam_sky, sky_size)
 
@@ -390,7 +361,7 @@ class CoreInstrumental:
 
         # Just in case we forget, now the frequencies are all in terms of the instrumental frequencies.
         frequencies = self.instrumental_frequencies
-
+        
         # Add thermal noise
         visibilities = self.add_thermal_noise(visibilities, frequencies, self.integration_time, Tsys=self.Tsys)
 
@@ -429,6 +400,33 @@ class CoreInstrumental:
         
         return np.exp(np.outer(-(L ** 2 + M ** 2), 1. / sigma ** 2).reshape((ncells, ncells, len(frequencies))))
 
+    @staticmethod
+    def conversion_factor_K_to_Jy(nu, omega=None):
+        """
+
+        Parameters
+        ----------
+        nu : float array, optional
+            The frequencies of the observation
+        
+        omega: float or array
+            The area of the observation or the beam
+
+        Returns
+        -------
+        conversion_factor : float or array
+            The conversion factor(s) (per frequency) which convert temperature in Kelvin to flux density in Jy.
+
+        """
+        if omega is None:
+            flux_density = (2 * const.k_B * 1e-3 * un.K / (((const.c) / (nu*(1 / un.s))) ** 2) * 1e26).to(
+                un.W / (un.Hz * un.m ** 2))
+        else:
+            flux_density = (2 * const.k_B * 1e-3 * un.K / (((const.c) / (nu*(1 / un.s))) ** 2) * 1e26).to(
+                un.W / (un.Hz * un.m ** 2)) / omega
+
+        return flux_density.value
+    
     @staticmethod
     def image_to_uv(sky, L):
         """
