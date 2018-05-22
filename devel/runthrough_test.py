@@ -13,7 +13,7 @@ model_name = "test"
 
 box_dim = {
     "HII_DIM": 30,
-    "BOX_LEN": 100.0
+    "BOX_LEN": 50.0
 }
 
 flag_options = {
@@ -55,7 +55,7 @@ except:
 lk_fg = LikelihoodForeground2D(filename_of_data, box_dim=box_dim, flag_options=flag_options, n_psbins=20)
 
 if not os.path.exists(filename_of_data):
-    lk_fg.simulate_data(fg_core, instr_core, parameters, niter=3)
+    lk_fg.simulate_data(fg_core, instr_core, parameters)
 
 run_mcmc(
     redshift=flag_options['redshifts'],
@@ -69,8 +69,8 @@ run_mcmc(
         instr_core
     ],
     likelihood_modules=[lk_fg],
-    walkersRatio=4,
+    walkersRatio=2,
     burninIterations=1,
-    sampleIterations=4,
+    sampleIterations=1,
     threadCount=1
 )

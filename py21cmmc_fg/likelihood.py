@@ -73,35 +73,32 @@ class LikelihoodForeground2D(LikelihoodBase):
 
         # TODO: it may be better to read in visbilities, and transform them here an now. In any case, we'll end up with
         # the following variables after the transformation anyway, so we can work with them.
-        self.kpar = data["kpar"]
-        self.kperp = data['kperp']
-        self.power = data["p"]
-
-        # This just monitors whether we've check the k dimensions.
-        self._checked = False
-
-        # Make a cosmology consistent with the box parameters.
-        # self.cosmo = FlatLambdaCDM(H0=100 * self.cosmo_params.hlittle, Om0=self.cosmo_params.OMm, Ob0=self.cosmo_params.OMb)
+        self.baselines = data["baselines"]
+        self.visibilities = data['visibilities']
+        self.frequencies = data["frequencies"]
 
     def computeLikelihood(self, ctx):
 
-        p, k = self.computePower(ctx)
+        # On the first run-through, we *create* the data from visibilities
+        if not hasattr(self, "power2d_data"):
+            # First, check if the frequencies and baselines match up.
+            if not np.all(self.frequencies==ctx.get("frequencies")):
+                raise ValueError("The frequencies of observation and model must match.")
+            if not np.all(self.baselines==ctx.get("baselines")):
+                raise ValueError("The baselines of observation and model must match.")
 
-        # Make sure we have the correct kpar and kperp. We can remove this if the data itself is generated from
-        # this class.
-        if not self._checked:
-            if len(k[0]) != len(self.kperp) or not np.isclose(k[0][0], self.kperp[0], 1e-4) or not np.isclose(k[0][-1], self.kperp[-1], 1e-4):
-                raise ValueError("The kperp dimensions between data and model are incompatible.")
-            if len(k[1]) != len(self.kpar) or not np.isclose(k[1][0], self.kpar[0], 1e-4) or not np.isclose(k[1][-1],
-                                                                                                           self.kperp[-1],
-                                                                                                           1e-4):
-                raise ValueError("The kpar dimensions between data and model are incompatible.")
+            self.power2d_data = self.computePower(
+                dict(
+                    baselines = self.baselines,
+                    visibilities = self.visibilities,
+                    frequencies = self.frequencies,
+                    output = ctx.get('output')
+                )
+            )[0]
 
-            self._checked = True
+        p, k, var = self.computePower(ctx)
 
-        # FIND CHI SQUARE OF PS!!!
-        # TODO: this is a bit too simple. We need uncertainties!
-        return -0.5 * np.sum((self.power - p) ** 2 / self.uncertainty ** 2)
+        return -0.5 * np.sum((self.power2d_data - p) ** 2 / var)
 
     def computePower(self, ctx):
         """
@@ -136,10 +133,10 @@ class LikelihoodForeground2D(LikelihoodBase):
         # Ensure weights correspond to FT.
         weights = np.sum(weights*self.frequency_taper(len(frequencies)), axis=-1)
 
-        power2d, coords = self.get_2d_power(visgrid, [ugrid, ugrid, eta], weights, frequencies.min(), frequencies.max(),
+        power2d, coords, var = self.get_2d_power(visgrid, [ugrid, ugrid, eta], weights, frequencies.min(), frequencies.max(),
                                             bins=self.n_psbins, cosmo=cosmo)
 
-        return power2d, coords
+        return power2d, coords, var
 
     def get_2d_power(self, fourier_vis, coords, weights, nu_min, nu_max, cosmo, bins=100):
         """
@@ -173,12 +170,12 @@ class LikelihoodForeground2D(LikelihoodBase):
         coords : list of 2 1D arrays
             The first value is the coordinates of k_perp (in 1/Mpc), and the second is k_par (in 1/Mpc).
         """
-        # Change the units of coords to Mpc
-        z_mid = 1420e6 / (nu_min+nu_max)/2 - 1
-        coords[0] *= 2 * np.pi / cosmo.comoving_transverse_distance([z_mid])
-        coords[1] *= 2 * np.pi / cosmo.comoving_transverse_distance([z_mid])
-        coords[2] = 2 * np.pi * coords[2] * cosmo.H0.to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(
-            z_mid) / (const.c * (1 + z_mid) ** 2)
+        # Change the units of coords to Mpc. No Need to do this if we don't write out the result.
+        # z_mid = 1420e6 / (nu_min+nu_max)/2 - 1
+        # coords[0] *= 2 * np.pi / cosmo.comoving_transverse_distance([z_mid])
+        # coords[1] *= 2 * np.pi / cosmo.comoving_transverse_distance([z_mid])
+        # coords[2] = 2 * np.pi * coords[2] * cosmo.H0.to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(
+        #     z_mid) / (const.c * (1 + z_mid) ** 2)
 
         # The 3D power spectrum
         power_3d = np.absolute(fourier_vis) ** 2
@@ -187,7 +184,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         # radial_bins = np.linspace(0, np.sqrt(2 * np.max(coords[0].value) ** 2), bins+1)
         # u, v = np.meshgrid(coords[0], coords[1])
 
-        P, radial_bins = angular_average_nd(power_3d, coords, bins, n=2, weights=weights**2, bin_ave=False)
+        P, radial_bins, var = angular_average_nd(power_3d, coords, bins, n=2, weights=weights**2, bin_ave=False, get_variance=True)
         radial_bins = (radial_bins[1:] + radial_bins[:-1])/2
         # # Initialize the power and 2d weights.
         # P = np.zeros([fourier_vis.shape[-1], len(radial_bins)])
@@ -204,12 +201,12 @@ class LikelihoodForeground2D(LikelihoodBase):
         #     bins[i, :] = np.bincount(bin_indx.flatten(), weights=weights[:, :, i].flatten())
         # P[bins > 0] = P[bins > 0] / bins[bins > 0]
 
-        # Convert the units of the power into Mpc**6
-        P /= ((CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(nu_min, nu_max, cosmo) * self.sr_to_mpc2(z_mid, cosmo)) ** 2).value
-        P /= self.volume(z_mid, nu_min, nu_max, cosmo)
+        # Convert the units of the power into Mpc**6. No need to do this if we don't write out the result, since it
+        # has the same effect on power and its variance (thus cancels).
+        # P /= ((CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(nu_min, nu_max, cosmo) * self.sr_to_mpc2(z_mid, cosmo)) ** 2).value
+        # P /= self.volume(z_mid, nu_min, nu_max, cosmo)
 
-        # TODO: In here we also need to calculate the VARIANCE of the power!!
-        return P, [(radial_bins[1:]+radial_bins[:-1])/2, coords[2].value]
+        return P, [radial_bins, coords[2]], var
 
     # def suppressedFg_1DPower(self, bins = 20):
     #
@@ -379,7 +376,7 @@ class LikelihoodForeground2D(LikelihoodBase):
 
         return Vol.value
 
-    def simulate_data(self, fg_core, instr_core, params, niter=20):
+    def simulate_data(self, fg_core, instr_core, params):
         """
         Simulate datasets to which this very class instance should be compared, returning their mean and std.
         Writes the information to the datafile of this instance.
@@ -413,19 +410,13 @@ class LikelihoodForeground2D(LikelihoodBase):
         params = Params(*[(k, v[1]) for k, v in params.items()])
         ctx = ChainContext('derp', params)
 
-        p = [0] * niter
-        for i in range(niter):
-            # Here is where the __call__ happens!
-            core(ctx)
-            fg_core(ctx)
-            instr_core(ctx)
+        # Here is where the __call__ happens!
+        core(ctx)
+        fg_core(ctx)
+        instr_core(ctx)
 
-            p[i], k = self.computePower(ctx)
-
-        sigma = np.std(np.array(p), axis=0)
-        p = np.mean(np.array(p), axis=0)
-
-        np.savez(self.datafile, k=k, p=p, sigma=sigma)
+        np.savez(self.datafile, frequencies=ctx.get("frequencies"), baselines = ctx.get("baselines"),
+                 visibilities=ctx.get("visibilities"))
 
 
 # class LikelihoodForeground1D(LikelihoodForeground2D):
