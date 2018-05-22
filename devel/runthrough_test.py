@@ -1,18 +1,15 @@
-import sys
-sys.path.insert(0, '../')
+# import sys
+# sys.path.insert(0, '../')
 from py21cmmc_fg.core import CoreForegrounds, CoreInstrumental
-from py21cmmc_fg.likelihood import LikelihoodForeground
+from py21cmmc_fg.likelihood import LikelihoodForeground2D
 from py21cmmc.mcmc import run_mcmc
 import os
 
 # ====== Manually set parameters for the run =================================
 parameters = {"HII_EFF_FACTOR": ['alpha', 30.0, 10.0, 50.0, 3.0]}
 
-storage_options = {
-    "DATADIR": os.path.expanduser("~/Documents/MCMCData"),
-    "KEEP_ALL_DATA": False,
-    "KEEP_GLOBAL_DATA": False,
-}
+datadir = os.path.expanduser("~/Documents/py21cmmc_fg_runs")
+model_name = "test"
 
 box_dim = {
     "HII_DIM": 30,
@@ -31,7 +28,7 @@ fg_core = CoreForegrounds(
     diffuse_params=dict(
         u0=10.0,
         eta = 0.01,
-        power_index = -2.7,
+        rho = -2.7,
         mean_temp=253e3,
         kappa=-2.55
     ),
@@ -47,15 +44,15 @@ instr_core = CoreInstrumental(
 )
 # ============================================================================
 
-filename_of_data = os.path.join(storage_options['DATADIR'], "data.txt")
-box_dim['DIREC'] = storage_options['DATADIR']
+filename_of_data = os.path.join(datadir, "data.txt")
+box_dim['DIREC'] = datadir
 
 try:
-    os.mkdir(box_dim['DIREC'])
+    os.mkdir(datadir)
 except:
     pass
 
-lk_fg = LikelihoodForeground(filename_of_data, box_dim=box_dim, flag_options=flag_options, n_psbins=20)
+lk_fg = LikelihoodForeground2D(filename_of_data, box_dim=box_dim, flag_options=flag_options, n_psbins=20)
 
 if not os.path.exists(filename_of_data):
     lk_fg.simulate_data(fg_core, instr_core, parameters, niter=3)
@@ -63,7 +60,8 @@ if not os.path.exists(filename_of_data):
 run_mcmc(
     redshift=flag_options['redshifts'],
     parameters=parameters,
-    storage_options = storage_options,
+    datadir=datadir,
+    model_name=model_name,
     box_dim=box_dim,
     flag_options=flag_options,
     extra_core_modules=[

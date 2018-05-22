@@ -18,11 +18,11 @@ from powerbox.dft import fft
 from powerbox import LogNormalPowerBox
 from os import path
 from py21cmmc import LightCone
-
+from astropy.cosmology import Planck15
 
 class CoreForegrounds:
     def __init__(self, pt_source_params={}, diffuse_params = {},  add_point_sources=True, add_diffuse=True, redshifts=None,
-                 boxsize=None, sky_cells = None):
+                 boxsize=None, sky_cells = None, cosmo=Planck15):
         """
         Setting up variables minimum and maximum flux
         """
@@ -33,17 +33,19 @@ class CoreForegrounds:
         self.add_diffuse = add_diffuse
         self.add_point_sources = add_point_sources
 
-        self.redshifts = redshifts
+        # The following applies when one does not require that 21cmFAST signals be added to the foregrounds.
+        if redshifts is not None:
+            self.redshifts = redshifts
 
-        if np.any(np.diff(self.redshifts)< 0) :
-            print("yeah in here")
-            self.redshifts = self.redshifts[::-1]
+            if np.any(np.diff(self.redshifts)< 0):
+                self.redshifts = self.redshifts[::-1]
 
-        if np.any(np.diff(self.redshifts) < 0) :
-            raise ValueError("Redshifts need to be monotonically increasing. %s"%self.redshifts)
+            if np.any(np.diff(self.redshifts) < 0) :
+                raise ValueError("Redshifts need to be monotonically increasing. %s"%self.redshifts)
 
-        self.boxsize = boxsize
-        self.sky_cells = sky_cells
+            self.boxsize = boxsize
+            self.sky_cells = sky_cells
+            self.cosmo = cosmo
 
     def setup(self):
         print("Generating the foregrounds")
@@ -64,13 +66,13 @@ class CoreForegrounds:
             redshifts = ctx.get("output").redshifts_slices
             boxsize = ctx.get("output").box_len
             sky_cells = eor_lightcone.shape[0]
+            cosmo = ctx.get("output").cosmo
+
         else:
             redshifts = self.redshifts
             boxsize = self.boxsize
             sky_cells = self.sky_cells
-
-        csm = ctx.get("cosmo_params")
-        cosmo = FlatLambdaCDM(H0=100 * csm.hlittle, Om0=csm.OMm, Ob0=csm.OMb)
+            cosmo  = self.cosmo
         fg_lightcone, frequencies, sky_size = self.add_foregrounds(sky_cells, redshifts, boxsize, cosmo)
 
         if eor is None:
@@ -133,12 +135,7 @@ class CoreForegrounds:
         # Change the units of brightness temperature from mK to Jy/sr
         lightcone *= self.conversion_factor_K_to_Jy()
 
-        # Interpolate linearly in frequency (POSSIBLY IN RADIAN AS WELL)
-        # TODO: I don't think we need to do this, as we can interpolate in the Instrumenal class.
-        # linLightcone, linFrequencies = self.interpolate_freqs(EoR_lightcone, frequencies)
-
-        # Generate the point sources foregrounds and
-        # TODO: this has no dependence on spectral index!!!
+        # Generate the point sources foregrounds.
         if self.add_point_sources:
             lightcone += self.point_sources(
                     frequencies=frequencies, sky_cells = sky_cells, sky_size=sky_size, **self.pt_source_params
@@ -356,11 +353,12 @@ class CoreInstrumental:
         lightcone = ctx.get("output").lightcone_box
         boxsize = ctx.get("output").box_len
         redshifts = ctx.get("output").redshifts_slices
+        cosmo = ctx.get("output").cosmo
 
         # Try getting the frequencies and sky size, but if they don't exist, just calculate them.
         frequencies = ctx.get("frequencies", 1420e6/(1+redshifts))
 
-        sky_size = ctx.get("sky_size", CoreForegrounds.get_sky_size(boxsize, redshifts))
+        sky_size = ctx.get("sky_size", CoreForegrounds.get_sky_size(boxsize, redshifts, cosmo))
 
         vis = self.add_instrument(lightcone, frequencies, sky_size)
 
