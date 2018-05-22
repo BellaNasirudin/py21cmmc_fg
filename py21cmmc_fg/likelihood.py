@@ -121,7 +121,6 @@ class LikelihoodForeground2D(LikelihoodBase):
         # Read in data from ctx
         visibilities = ctx.get("visibilities")
         baselines = ctx.get('baselines')
-        sigma = ctx.get("sigma")
         frequencies = ctx.get("frequencies")
         n_uv = self.n_uv or ctx.get("output").lightcone_box.shape[0]
         cosmo = ctx.get("output").cosmo
@@ -208,13 +207,6 @@ class LikelihoodForeground2D(LikelihoodBase):
         # P /= self.volume(z_mid, nu_min, nu_max, cosmo)
 
         return P, [radial_bins, coords[2]], var
-
-        # Convert the units of the power into Mpc**6
-        P /= ((CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(nu_min, nu_max) * self.sr_to_mpc2(z_mid)) ** 2).value
-        P /= self.volume(z_mid, nu_min, nu_max)
-
-        # TODO: In here we also need to calculate the VARIANCE of the power!!
-        return P, [(radial_bins[1:]+radial_bins[:-1])/2, coords[2].value]
 
     # def suppressedFg_1DPower(self, bins = 20):
     #
