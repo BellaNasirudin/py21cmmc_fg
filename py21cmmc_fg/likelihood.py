@@ -14,14 +14,15 @@ from astropy import constants as const
 from astropy.cosmology import FlatLambdaCDM
 from astropy import units as un
 
-from py21cmmc.likelihood import LikelihoodBase#, Core21cmFastModule
+from py21cmmc.likelihood import LikelihoodBase
+from py21cmmc.core import Core21cmFastModule
 from cosmoHammer.ChainContext import ChainContext
 from cosmoHammer.util import Params
 from .core import CoreForegrounds
 
 
 class LikelihoodForeground2D(LikelihoodBase):
-    def __init__(self, datafile, n_uv=None, n_psbins=50, umax = None,**kwargs):
+    def __init__(self, datafile, n_uv=None, n_psbins=50, umax = None, frequency_taper=np.hanning, **kwargs):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
 
@@ -49,6 +50,10 @@ class LikelihoodForeground2D(LikelihoodBase):
 
         umax : float, optional
             The extent of the UV grid. By default, uses the longest baseline at the highest frequency.
+
+        taper : callable, optional
+            A function which computes a taper function on an nfreq-array. Default is to have no taper. Callable should
+            take single argument, N.
         """
 
         super().__init__(**kwargs)
@@ -56,6 +61,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         self.n_uv = n_uv
         self.n_psbins = n_psbins
         self.umax = umax
+        self.frequency_taper = frequency_taper
 
     def setup(self):
         """
@@ -75,7 +81,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         self._checked = False
 
         # Make a cosmology consistent with the box parameters.
-        self.cosmo = FlatLambdaCDM(H0=100 * self.cosmo_params.hlittle, Om0=self.cosmo_params.OMm, Ob0=self.cosmo_params.OMb)
+        # self.cosmo = FlatLambdaCDM(H0=100 * self.cosmo_params.hlittle, Om0=self.cosmo_params.OMm, Ob0=self.cosmo_params.OMb)
 
     def computeLikelihood(self, ctx):
 
@@ -120,19 +126,22 @@ class LikelihoodForeground2D(LikelihoodBase):
         baselines = ctx.get('baselines')
         frequencies = ctx.get("frequencies")
         n_uv = self.n_uv or ctx.get("output").lightcone_box.shape[0]
-
-        # Update the cosmology object to be consistent with the box.
-
+        cosmo = ctx.get("output").cosmo
 
         # Compute 2D power.
         ugrid, visgrid, weights = self.grid(visibilities, baselines, frequencies, n_uv, self.umax)
 
-        visgrid, eta = self.frequency_fft(visgrid, frequencies)
-        power2d, coords = self.get_2d_power(visgrid, [ugrid, ugrid, eta], weights, frequencies.min(), frequencies.max(), bins=self.n_psbins)
+        visgrid, eta = self.frequency_fft(visgrid, frequencies, taper=self.frequency_taper)
+
+        # Ensure weights correspond to FT.
+        weights = np.sum(weights*self.frequency_taper(len(frequencies)), axis=-1)
+
+        power2d, coords = self.get_2d_power(visgrid, [ugrid, ugrid, eta], weights, frequencies.min(), frequencies.max(),
+                                            bins=self.n_psbins, cosmo=cosmo)
 
         return power2d, coords
 
-    def get_2d_power(self, fourier_vis, coords, weights, nu_min, nu_max, bins=100):
+    def get_2d_power(self, fourier_vis, coords, weights, nu_min, nu_max, cosmo, bins=100):
         """
         Determine the 2D Power Spectrum of the observation.
 
@@ -166,34 +175,37 @@ class LikelihoodForeground2D(LikelihoodBase):
         """
         # Change the units of coords to Mpc
         z_mid = 1420e6 / (nu_min+nu_max)/2 - 1
-        coords[0] *= 2 * np.pi / self.cosmo.comoving_transverse_distance([z_mid])
-        coords[1] *= 2 * np.pi / self.cosmo.comoving_transverse_distance([z_mid])
-        coords[2] = 2 * np.pi * coords[2] * self.cosmo.H0.to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * self.cosmo.efunc(
+        coords[0] *= 2 * np.pi / cosmo.comoving_transverse_distance([z_mid])
+        coords[1] *= 2 * np.pi / cosmo.comoving_transverse_distance([z_mid])
+        coords[2] = 2 * np.pi * coords[2] * cosmo.H0.to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(
             z_mid) / (const.c * (1 + z_mid) ** 2)
 
         # The 3D power spectrum
         power_3d = np.absolute(fourier_vis) ** 2
 
         # Generate the radial bins and coords
-        radial_bins = np.linspace(0, np.sqrt(2 * np.max(coords[0].value) ** 2), bins+1)
-        u, v = np.meshgrid(coords[0], coords[1])
+        # radial_bins = np.linspace(0, np.sqrt(2 * np.max(coords[0].value) ** 2), bins+1)
+        # u, v = np.meshgrid(coords[0], coords[1])
 
-        # Initialize the power and 2d weights.
-        P = np.zeros([fourier_vis.shape[-1], len(radial_bins)])
-        bins = np.zeros_like(P)
-
-        # Determine which radial bin each cell lies in.
-        bin_indx = np.digitize((u.value ** 2 + v.value ** 2), bins=radial_bins ** 2) - 1
-
-        print(bin_indx.shape)
-        # Average within radial bins, weighting with weights.
-        for i in range(len(coords[2])):
-            P[i, :] = np.bincount(bin_indx.flatten(), weights=(weights[:, :, i]*power_3d[:, :, i]).flatten())
-            bins[i, :] = np.bincount(bin_indx.flatten(), weights=weights[:, :, i].flatten())
-        P[bins > 0] = P[bins > 0] / bins[bins > 0]
+        P, radial_bins = angular_average_nd(power_3d, coords, bins, n=2, weights=weights**2, bin_ave=False)
+        radial_bins = (radial_bins[1:] + radial_bins[:-1])/2
+        # # Initialize the power and 2d weights.
+        # P = np.zeros([fourier_vis.shape[-1], len(radial_bins)])
+        # bins = np.zeros_like(P)
+        #
+        #
+        # # Determine which radial bin each cell lies in.
+        # bin_indx = np.digitize((u.value ** 2 + v.value ** 2), bins=radial_bins ** 2) - 1
+        #
+        # print(bin_indx.shape)
+        # # Average within radial bins, weighting with weights.
+        # for i in range(len(coords[2])):
+        #     P[i, :] = np.bincount(bin_indx.flatten(), weights=(weights[:, :, i]*power_3d[:, :, i]).flatten())
+        #     bins[i, :] = np.bincount(bin_indx.flatten(), weights=weights[:, :, i].flatten())
+        # P[bins > 0] = P[bins > 0] / bins[bins > 0]
 
         # Convert the units of the power into Mpc**6
-        P /= ((CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(nu_min, nu_max, self.cosmo) * self.sr_to_mpc2(z_mid, cosmo)) ** 2).value
+        P /= ((CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(nu_min, nu_max, cosmo) * self.sr_to_mpc2(z_mid, cosmo)) ** 2).value
         P /= self.volume(z_mid, nu_min, nu_max, cosmo)
 
         # TODO: In here we also need to calculate the VARIANCE of the power!!
@@ -278,7 +290,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         return centres, visgrid, weights
 
     @staticmethod
-    def frequency_fft(vis, freq):
+    def frequency_fft(vis, freq, taper=np.ones_like):
         """
         Fourier-transform a gridded visibility along the frequency axis.
 
@@ -290,6 +302,10 @@ class LikelihoodForeground2D(LikelihoodBase):
         freq : (nfreq)-array
             The linearly-spaced frequencies of the observation.
 
+        taper : callable, optional
+            A function which computes a taper function on an nfreq-array. Default is to have no taper. Callable should
+            take single argument, N.
+
         Returns
         -------
         ft : (ncells, ncells, nfreq/2)-array
@@ -298,7 +314,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         eta : (nfreq/2)-array
             The eta-coordinates, without negative values.
         """
-        ft, eta =fft(vis, (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)
+        ft, eta =fft(vis*taper(len(freq)), (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)
         ft = ft[:,:, (int(len(freq)/2)+1):]
         return ft, eta[0][(int(len(freq)/2)+1):]
 
@@ -352,6 +368,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         How is this actually calculated? What assumptions are made?
         """
         # TODO: fix the notes in the docs above.
+        # TODO: the taper probably should be applied in here.
 
         diff_nu = nu_max - nu_min
 
@@ -411,50 +428,50 @@ class LikelihoodForeground2D(LikelihoodBase):
         np.savez(self.datafile, k=k, p=p, sigma=sigma)
 
 
-class LikelihoodForeground1D(LikelihoodForeground2D):
-    def computePower(self, ctx):
-        # Read in data from ctx
-        visibilities = ctx.get("visibilities")
-        baselines = ctx.get('baselines')
-        frequencies = ctx.get("frequencies")
-        n_uv = self.n_uv or ctx.get("output").lightcone_box.shape[0]
-
-        ugrid, visgrid, weights = self.grid(visibilities, baselines, frequencies, n_uv)
-
-        visgrid, eta = self.frequency_fft(visgrid, frequencies)
-
-        # TODO: this is probably wrong!
-        #weights = np.sum(weights, axis=-1)
-        power2d, coords  = self.get_1D_power(visgrid, [ugrid, ugrid, eta], weights, frequencies, bins=self.n_psbins )
-
-        # Find the 1D Power Spectrum of the visibility
-        #self.get_1D_power(visgrid, [ugrid, ugrid, eta[0]], weights, frequencies, bins=self.n_psbins)
-        return power2d, coords
-
-    def get_1D_power(self, visibility, coords, weights, linFrequencies, bins=100):
-
-        print("Finding the power spectrum")
-        ## Change the units of coords to Mpc
-        z_mid = (1420e6) / (np.mean(linFrequencies)) - 1
-        coords[0] = 2 * np.pi * coords[0] / cosmo.comoving_transverse_distance([z_mid])
-        coords[1] = 2 * np.pi * coords[1] / cosmo.comoving_transverse_distance([z_mid])
-        coords[2] = 2 * np.pi * coords[2] * (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(
-            z_mid) / (const.c * (1 + z_mid) ** 2)
-
-        # Change the unit of visibility
-        visibility = visibility / CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(np.min(linFrequencies),
-                                                                                               np.max(
-                                                                                                   linFrequencies)) * self.sr_to_mpc2(
-            z_mid)
-
-        # Square the visibility
-        visibility_sq = np.abs(visibility) ** 2
-
-        # TODO: check if this is correct (reshaping might be in wrong order)
-        weights = np.repeat(weights, len(coords[2])).reshape((len(coords[0]), len(coords[1]), len(coords[2])))
-
-        PS_mK2Mpc6, k_Mpc = angular_average_nd(visibility_sq, coords, bins=bins, weights=weights)
-
-        PS_mK2Mpc3 = PS_mK2Mpc6 / self.volume(z_mid, np.min(linFrequencies), np.max(linFrequencies))
-
-        return PS_mK2Mpc3, k_Mpc
+# class LikelihoodForeground1D(LikelihoodForeground2D):
+#     def computePower(self, ctx):
+#         # Read in data from ctx
+#         visibilities = ctx.get("visibilities")
+#         baselines = ctx.get('baselines')
+#         frequencies = ctx.get("frequencies")
+#         n_uv = self.n_uv or ctx.get("output").lightcone_box.shape[0]
+#
+#         ugrid, visgrid, weights = self.grid(visibilities, baselines, frequencies, n_uv)
+#
+#         visgrid, eta = self.frequency_fft(visgrid, frequencies)
+#
+#         # TODO: this is probably wrong!
+#         #weights = np.sum(weights, axis=-1)
+#         power2d, coords  = self.get_1D_power(visgrid, [ugrid, ugrid, eta], weights, frequencies, bins=self.n_psbins )
+#
+#         # Find the 1D Power Spectrum of the visibility
+#         #self.get_1D_power(visgrid, [ugrid, ugrid, eta[0]], weights, frequencies, bins=self.n_psbins)
+#         return power2d, coords
+#
+#     def get_1D_power(self, visibility, coords, weights, linFrequencies, bins=100):
+#
+#         print("Finding the power spectrum")
+#         ## Change the units of coords to Mpc
+#         z_mid = (1420e6) / (np.mean(linFrequencies)) - 1
+#         coords[0] = 2 * np.pi * coords[0] / cosmo.comoving_transverse_distance([z_mid])
+#         coords[1] = 2 * np.pi * coords[1] / cosmo.comoving_transverse_distance([z_mid])
+#         coords[2] = 2 * np.pi * coords[2] * (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(
+#             z_mid) / (const.c * (1 + z_mid) ** 2)
+#
+#         # Change the unit of visibility
+#         visibility = visibility / CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(np.min(linFrequencies),
+#                                                                                                np.max(
+#                                                                                                    linFrequencies)) * self.sr_to_mpc2(
+#             z_mid)
+#
+#         # Square the visibility
+#         visibility_sq = np.abs(visibility) ** 2
+#
+#         # TODO: check if this is correct (reshaping might be in wrong order)
+#         weights = np.repeat(weights, len(coords[2])).reshape((len(coords[0]), len(coords[1]), len(coords[2])))
+#
+#         PS_mK2Mpc6, k_Mpc = angular_average_nd(visibility_sq, coords, bins=bins, weights=weights)
+#
+#         PS_mK2Mpc3 = PS_mK2Mpc6 / self.volume(z_mid, np.min(linFrequencies), np.max(linFrequencies))
+#
+#         return PS_mK2Mpc3, k_Mpc
