@@ -1,5 +1,5 @@
-# import sys
-# sys.path.insert(0, '../')
+import sys
+sys.path.insert(0, '../')
 from py21cmmc_fg.core import CoreForegrounds, CoreInstrumental
 from py21cmmc_fg.likelihood import LikelihoodForeground2D
 from py21cmmc.mcmc import run_mcmc

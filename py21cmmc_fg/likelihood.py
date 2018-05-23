@@ -18,7 +18,7 @@ from py21cmmc.likelihood import LikelihoodBase
 from py21cmmc.core import Core21cmFastModule
 from cosmoHammer.ChainContext import ChainContext
 from cosmoHammer.util import Params
-from .core import CoreForegrounds
+from .core import CoreInstrumental
 
 
 class LikelihoodForeground2D(LikelihoodBase):
@@ -340,7 +340,7 @@ class LikelihoodForeground2D(LikelihoodBase):
         return cosmo.comoving_distance(z) / (1 * un.sr)
 
     @staticmethod
-    def volume(z_mid, nu_min, nu_max, cosmo, A_eff=20):
+    def volume(z_mid, nu_min, nu_max, A_eff=20):
         """
         Calculate the effective volume of an observation in Mpc**3, when co-ordinates are provided in Hz.
 
@@ -365,13 +365,12 @@ class LikelihoodForeground2D(LikelihoodBase):
         How is this actually calculated? What assumptions are made?
         """
         # TODO: fix the notes in the docs above.
-        # TODO: the taper probably should be applied in here.
 
         diff_nu = nu_max - nu_min
 
         G_z = (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(z_mid) / (const.c * (1 + z_mid) ** 2)
 
-        Vol = const.c ** 2 / (A_eff * un.m ** 2 * nu_max * (1 / un.s) ** 2) * diff_nu * (
+        Vol = const.c ** 2 / (sigma * un.m ** 2 * nu_max * (1 / un.s) ** 2) * diff_nu * (
                     1 / un.s) * cosmo.comoving_distance([z_mid]) ** 2 / (G_z)
 
         return Vol.value
