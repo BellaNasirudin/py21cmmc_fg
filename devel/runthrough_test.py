@@ -1,12 +1,10 @@
-import sys
-sys.path.insert(0, '../')
 from py21cmmc_fg.core import CoreForegrounds, CoreInstrumental
 from py21cmmc_fg.likelihood import LikelihoodForeground2D
 from py21cmmc.mcmc import run_mcmc
 import os
 
 # ====== Manually set parameters for the run =================================
-parameters = {"HII_EFF_FACTOR": ['alpha', 30.0, 10.0, 50.0, 3.0]}
+parameters = {"HII_EFF_FACTOR": [ 30.0, 10.0, 50.0, 3.0]}
 
 datadir = os.path.expanduser("~/Documents/py21cmmc_fg_runs")
 model_name = "test"

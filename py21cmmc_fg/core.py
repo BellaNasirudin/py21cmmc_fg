@@ -1,4 +1,3 @@
-#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """
 Created on Tue Apr 17 14:13:39 2018
@@ -11,44 +10,55 @@ Foreground core for 21cmmc
 from scipy.integrate import quad
 import numpy as np
 from astropy import constants as const
-from astropy.cosmology import FlatLambdaCDM
 from astropy import units as un
 from scipy.interpolate import RegularGridInterpolator
 from powerbox.dft import fft
 from powerbox import LogNormalPowerBox
 from os import path
-from py21cmmc import LightCone
+import py21cmmc as p21
 from astropy.cosmology import Planck15
 
-class CoreForegrounds:
-    def __init__(self, pt_source_params={}, diffuse_params = {},  add_point_sources=True, add_diffuse=True, redshifts=None,
-                 boxsize=None, sky_cells = None, cosmo=Planck15):
-        """
-        Setting up variables minimum and maximum flux
-        """
-        # print "Initializing the foreground core"
+from py21cmmc import LightCone, UserParams, CosmoParams
 
-        self.pt_source_params = pt_source_params
-        self.diffuse_params = diffuse_params
-        self.add_diffuse = add_diffuse
-        self.add_point_sources = add_point_sources
 
-        # The following applies when one does not require that 21cmFAST signals be added to the foregrounds.
-        if redshifts is not None:
-            self.redshifts = redshifts
+class ForegroundsBase:
+    """
+    A base class which implements some higher-level functionality that all foreground core modules will require.
+    """
+    # The defaults dict specifies arguments that need to be set if no CoreLightConeModule is loaded.
+    defaults = dict(
+        box_len = 150.0,
+        sky_cells = 100,
+        cosmo = Planck15,
+    )
 
-            if np.any(np.diff(self.redshifts)< 0):
-                self.redshifts = self.redshifts[::-1]
+    def __init__(self, redshifts=None, store=None, **kwargs):
+        self.model_params = kwargs
+        self.redshifts = redshifts
 
-            if np.any(np.diff(self.redshifts) < 0) :
-                raise ValueError("Redshifts need to be monotonically increasing. %s"%self.redshifts)
+        self.store = store or {}
 
-            self.boxsize = boxsize
-            self.sky_cells = sky_cells
-            self.cosmo = cosmo
+        self.user_params = UserParams(HII_DIM=self.defaults['sky_cells'], BOX_LEN=self.defaults['box_len'])
+        self.cosmo_params = CosmoParams(hlittle=self.defaults['cosmo'].h, OMm=self.defaults['cosmo'].Om0,
+                                        OMb=self.defaults['cosmo'].Ob0)
 
     def setup(self):
-        print("Generating the foregrounds")
+        for m in self.LikelihoodComputationChain.getCoreModules():
+            if isinstance(m, p21.mcmc.core.CoreLightConeModule):
+                self.lightcone_module = m
+
+        if hasattr(self, "lightcone_module"):
+            self.user_params = self.lightcone_module.user_params
+            self.cosmo_params = self.lightcone_module.cosmo_params
+
+    def prepare_storage(self, ctx, storage):
+        "Add variables to special dict which cosmoHammer will automatically store with the chain."
+        for name, storage_function in self.store.items():
+            try:
+                storage[name] = storage_function(ctx)
+            except Exception:
+                print("Exception while trying to evaluate storage function %s"%name)
+                raise
 
     def __call__(self, ctx):
         """
@@ -58,92 +68,59 @@ class CoreForegrounds:
         a foreground-contaminated version with the same shape (but in Jy/sr rather than mK). It also adds the
         variables "frequencies" and "sky_size".
         """
-        print("Getting the simulation data")
 
-        eor = ctx.get("output", None)
-        if eor is not None:
-            eor_lightcone = ctx.get("output").lightcone_box
-            redshifts = ctx.get("output").redshifts_slices
-            boxsize = ctx.get("output").box_len
-            sky_cells = eor_lightcone.shape[0]
-            cosmo = ctx.get("output").cosmo
+        lightcone = ctx.get('lightcone', None)
 
-        else:
-            redshifts = self.redshifts
-            boxsize = self.boxsize
-            sky_cells = self.sky_cells
-            cosmo  = self.cosmo
-        fg_lightcone, frequencies, sky_size = self.add_foregrounds(sky_cells, redshifts, boxsize, cosmo)
+        if self.redshifts is None:
+            try:
+                self.redshifts = lightcone.lightcone_redshifts
+            except AttributeError:
+                raise ValueError("If no lightcone core is supplied, redshifts must be supplied.")
 
-        if eor is None:
-            ctx.add("output", LightCone(redshifts, fg_lightcone, fg_lightcone.shape[0], boxsize))
-            print("Added lightcone")
-            ctx.get('output').redshifts_slices = redshifts
-        else:
-            # Replace the EoR lightcone with the new lightcone
-            ctx.get("output").lightcone_box += fg_lightcone
 
-        ctx.add("frequencies", frequencies)
-        ctx.add("sky_size", sky_size)
+        fg_lightcone = self.build_sky(self.frequencies, self.user_params.HII_DIM, self.sky_size, **self.model_params)
+        self._add_to_ctx(ctx, fg_lightcone)
 
-    def add_foregrounds(self, sky_cells, redshifts, boxsize, cosmo):
-        """
-        A function which creates foregrounds (both point-sources and diffuse) and adds them to an existing lightcone.
-        It also changes the units from mK to Jy/sr.
+    def _add_to_ctx(self, ctx, new):
 
-        Parameters
-        ----------
-        sky_cells : int
-            The number of cells on the sky grid (not into the sky).
-        
-        redshifts : (nredshifts,)-array
-            The redshifts (instead of comoving distance) corresponding to each slice of EoR lightcone
-        
-        boxsize : float
-            The size of the EoR lightcone (in transverse direction) in Mpc
-
-        Returns
-        -------
-        sky : (sky_cells, sky_cells, nredshifts)-array
-            A box containing both the EoR signal and the foregrounds, in units of Jy/sr
-        
-        frequencies : (nredshifts,)-array
-            The frequencies (in Hz) corresponding to the input redshifts.
-
-        sky_size : float
-            The length of the box (in transverse direction) in radians, at the mean redshift.
-        
-        """
-        # Number of 2D cells in sky array
-        # sky_cells = lightcone.shape[0]
-
-        # Convert the boxsize from Mpc to radian
-        # IF USING SMALL BOX, THIS IS WHERE WE DO STITCHING!!!
-        sky_size = self.get_sky_size(boxsize, redshifts, cosmo)
-
-        # Note, don't flip the frequencies here, rather do it only when necessary.
-        frequencies = 1420e6 / (redshifts + 1)
-
-        lightcone = np.zeros((sky_cells, sky_cells, len(redshifts)))
-
-        if self.add_diffuse:
-            # We add it here, because it's easier to add in mK
-            lightcone += self.diffuse(frequencies, sky_cells, sky_size, **self.diffuse_params)
-
-        # Generate the point sources foregrounds in mK and add to lightcone
-        if self.add_point_sources:
-            lightcone += self.point_sources(
-                    frequencies=frequencies, sky_cells = sky_cells, sky_size=sky_size, **self.pt_source_params
+        if not ctx.contains("lightcone"):
+            ctx.add(
+                "lightcone",
+                LightCone( # Create a mock lightcone that can be read by future likelihoods as if it were the real deal.
+                    redshift = self.redshifts.min(),
+                    user_params = self.user_params,
+                    cosmo_params = self.cosmo_params,
+                    astro_params = None, flag_options = None, brightness_temp = new
                 )
-
-        return lightcone, frequencies, sky_size
+            )
+        else:
+            # Add new bit to old lightcone
+            ctx.get("lightcone").brightness_temp += new
 
     @staticmethod
     def get_sky_size(boxsize, redshifts, cosmo):
         return 2 * np.arctan(boxsize / (2 * cosmo.comoving_transverse_distance([np.mean(redshifts)]).value))
 
+    @property
+    def sky_size(self):
+        return self.get_sky_size(self.user_params.BOX_LEN, self.redshifts, self.cosmo_params.cosmo)
+
+    @property
+    def frequencies(self):
+        "The frequencies associated with slice redshifts, in Hz"
+        return 1420e6 / (self.redshifts + 1)
+
+
+class CorePointSourceForegrounds(ForegroundsBase):
+    """
+    A 21CMMC Core MCMC module which adds point-source foregrounds to the base signal.
+    """
+
+    def __init__(self, *args, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8, f0=150e6, **kwargs):
+        super().__init__(*args, S_min=S_min, S_max=S_max, alpha=alpha, beta=beta, gamma=gamma, f0=f0, **kwargs)
+
     @staticmethod
-    def point_sources(frequencies, sky_cells, sky_size, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8,f0=150e6):
+    def build_sky(frequencies, sky_cells, sky_size, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8, f0=150e6):
         """
         Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
         model.
@@ -152,22 +129,16 @@ class CoreForegrounds:
         ----------
         frequencies : array
             The frequencies at which to determine the diffuse emission.
-
         sky_cells : int
             Number of cells on a side for the 2 sky dimensions.
-
         sky_size : float
             Size (in radians) of the angular dimensions of the box.
-
         S_min : float
             The minimum flux (in Jy) of the foregrounds.
-            
         S_max : float
             The maximum flux (in Jy) of the foregrounds.
-            
         alpha : float
             The coefficient from Intema et al (2011). See notes below.
-            
         beta : float
             The coefficient from Intema et al (2011). See notes below.
 
@@ -175,11 +146,11 @@ class CoreForegrounds:
         -------
         sky : array
             The sky filled with foregrounds (in mK).
-        
-        notes
+
+        Notes
         -----
         The box is populated with point-sources foreground given by
-        
+
         .. math::\frac{dN}{dS} (\nu)= \alpha \left(\frac{S_{\nu}}{S_0}\right)^{-\beta} {\rm Jy}^{-1} {\rm sr}^{-1}.
 
         """
@@ -194,29 +165,33 @@ class CoreForegrounds:
 
         # Generate the point sources in unit of Jy and position using uniform distribution
         S_0 = ((S_max ** (1 - beta) - S_min ** (1 - beta)) * np.random.uniform(size=N_sources) + S_min ** (
-                    1 - beta)) ** (1 / (1 - beta))
+                1 - beta)) ** (1 / (1 - beta))
         pos = np.rint(np.random.uniform(0, sky_cells - 1, size=(N_sources, 2))).astype(int)
-        
-        ## Grid the fluxes at nu = 150
-        S_0 = np.histogram2d(pos[:,0], pos[:,1], bins = np.arange(0, sky_cells+1, 1), weights = S_0)
+
+        # Grid the fluxes at nu = 150
+        S_0 = np.histogram2d(pos[:, 0], pos[:, 1], bins=np.arange(0, sky_cells + 1, 1), weights=S_0)
         S_0 = S_0[0]
 
-        ## Find the fluxes at different frequencies based on spectral index and divide by cell area
-        sky = np.outer(S_0, (frequencies/f0)**(-gamma)).reshape((np.shape(S_0)[0],np.shape(S_0)[0],len(frequencies)))
-        sky /= (sky_size / sky_cells)**2
+        # Find the fluxes at different frequencies based on spectral index and divide by cell area
+        sky = np.outer(S_0, (frequencies / f0) ** (-gamma)).reshape((np.shape(S_0)[0], np.shape(S_0)[0], len(frequencies)))
+        sky /= (sky_size / sky_cells) ** 2
 
         # Change the unit from Jy/sr to mK
         sky /= CoreInstrumental.conversion_factor_K_to_Jy(frequencies)
 
         return sky
 
+
+class CoreDiffuseForegrounds(ForegroundsBase):
+    """
+    A 21CMMC Core MCMC module which adds diffuse foregrounds to the base signal.
+    """
+
+    def __init__(self, *args, u0=10.0, eta = 0.01, rho = -2.7, mean_temp=253e3, kappa=-2.55, **kwargs):
+        super().__init__(*args, u0=u0, eta = eta, rho = rho, mean_temp=mean_temp, kappa=kappa, **kwargs)
+
     @staticmethod
-    def diffuse(frequencies, ncells, sky_size,
-                u0=10.0,
-                eta = 0.01,
-                rho = -2.7,
-                mean_temp=253e3,
-                kappa=-2.55):
+    def build_sky(frequencies, ncells, sky_size, u0=10.0, eta = 0.01, rho = -2.7, mean_temp=253e3, kappa=-2.55):
         """
         This creates diffuse structure according to Eq. 55 from Trott+2016.
 
@@ -268,8 +243,14 @@ class CoreForegrounds:
 
 
 class CoreInstrumental:
+    """
+    Core MCMC class which converts 21cmFAST *lightcone* output into a mock observation, sampled at specific baselines.
+
+    Assumes that either a :class:`ForegroundBase` instance, or :class:`py21cmmc.mcmc.core.CoreLightConeModule` is also
+    being used (and loaded before this).
+    """
     def __init__(self, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=150.0,
-                 integration_time=1200, Tsys = 0):
+                 integration_time=1200, Tsys = 0, store=None):
         """
         Core MCMC class which converts 21cmFAST *lightcone* output into a mock observation, sampled at specific baselines.
 
@@ -303,11 +284,29 @@ class CoreInstrumental:
         self.max_bl_length = max_bl_length
         self.integration_time = integration_time
         self.Tsys = Tsys
+        self.store = store or {}
+
+    def prepare_storage(self, ctx, storage):
+        "Add variables to special dict which cosmoHammer will automatically store with the chain."
+        for name, storage_function in self.store.items():
+            try:
+                storage[name] = storage_function(ctx)
+            except Exception:
+                print("Exception while trying to evaluate storage function %s"%name)
+                raise
 
     def setup(self):
         """
         Basically just read in the baselines from file that user gives.
         """
+        # Setup dependencies
+        for m in self.LikelihoodComputationChain.getCoreModules():
+            if isinstance(m, ForegroundsBase) or isinstance(m, p21.mcmc.core.CoreLightConeModule):
+                self._base_module = m # Doesn't really matter which one, we only want to access basic properties.
+
+        if not hasattr(self, "_base_module"):
+            raise ValueError("For CoreInstrumental, either a ForegroundBase or CoreLightConeModule must be loaded before it.")
+
         if self.antenna_posfile == "grid_centres":
             self.baselines = None
 
@@ -327,22 +326,27 @@ class CoreInstrumental:
             self.baselines = self.baselines[
                 self.baselines[:, 0].value ** 2 + self.baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
 
+    @property
+    def frequencies(self):
+        "The frequencies associated with slice redshifts, in Hz"
+        return 1420e6 / (self.redshifts + 1)
+
     def __call__(self, ctx):
         """
         Generate a set of realistic visibilities (i.e. the output we expect from an interferometer) and add it to the
         context. Also, add the linear frequencies of the observation to the context.
         """
-        lightcone = ctx.get("output").lightcone_box
-        boxsize = ctx.get("output").box_len
-        redshifts = ctx.get("output").redshifts_slices
-        cosmo = ctx.get("output").cosmo
+        lightcone = ctx.get("lightcone")
 
-        # Try getting the frequencies and sky size, but if they don't exist, just calculate them.
-        frequencies = ctx.get("frequencies", 1420e6/(1+redshifts))
+        # Get the redshifts
+        if not hasattr(self, "redshifts"):
+            self.redshifts = lightcone.lightcone_redshifts
 
-        sky_size = ctx.get("sky_size", CoreForegrounds.get_sky_size(boxsize, redshifts, cosmo))
+        boxsize = self._base_module.user_params.BOX_LEN
+        cosmo = self._base_module.cosmo_params.cosmo
+        sky_size = ForegroundsBase.get_sky_size(boxsize, self.redshifts, cosmo)
 
-        vis = self.add_instrument(lightcone, frequencies, sky_size)
+        vis = self.add_instrument(lightcone.brightness_temp, self.frequencies, sky_size)
         
         ctx.add("visibilities", vis)
         ctx.add("baselines", self.baselines)
@@ -377,7 +381,8 @@ class CoreInstrumental:
         beam_area = self.beam(frequencies, sky_cells, sky_size, self.tile_diameter)
         
         # Add thermal noise using the mean beam area
-        visibilities = self.add_thermal_noise(visibilities, frequencies, beam_area[1], self.integration_time, Tsys=self.Tsys)
+        visibilities = self.add_thermal_noise(visibilities, frequencies, beam_area[1], self.integration_time,
+                                              Tsys=self.Tsys)
 
         return visibilities
 
