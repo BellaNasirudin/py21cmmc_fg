@@ -8,6 +8,21 @@ from py21cmmc.mcmc.core import CoreLightConeModule
 from py21cmmc.mcmc.mcmc import run_mcmc, build_computation_chain
 from py21cmmc.mcmc.cosmoHammer import ChainContext
 
+import matplotlib.pyplot as plt
+
+PLOT = True
+
+
+def mkplot(ctx):
+    if PLOT:
+        plt.imshow(ctx.get("lightcone").brightness_temp[:, :, 0])
+        plt.colorbar()
+        plt.savefig("figure.png")
+
+    else:
+        print(ctx.get("lightcone").brightness_temp)
+
+
 def point_sources_only():
     # To change the size parameters for every kind of foreground, modify
     # the class variable:
@@ -15,15 +30,14 @@ def point_sources_only():
     core.ForegroundsBase.defaults['sky_cells'] = 80
 
     # Make a core, with no 21cmFAST signal.
-    ptsource_core = core.CorePointSourceForegrounds(redshifts = np.linspace(7,8,25))
+    ptsource_core = core.CorePointSourceForegrounds(redshifts=np.linspace(7, 8, 25))
 
     # Create an empty context, required to call the core.
     ctx = ChainContext(parent=None, params={})
 
     # Call the core.
     ptsource_core(ctx)
-
-    print(ctx.get("lightcone").brightness_temp)
+    mkplot(ctx)
 
 
 def point_sources_with_21cmfast():
@@ -31,15 +45,16 @@ def point_sources_with_21cmfast():
     ptsource_core = core.CorePointSourceForegrounds()
 
     signal_core = CoreLightConeModule(
-        redshift=7.0,      # Minimum redshift of the lightcone
-        max_redshift=10.0  # Maximum redshift will be *at least* this big.
+        redshift=7.0,  # Minimum redshift of the lightcone
+        max_redshift=10.0,  # Maximum redshift will be *at least* this big.
+        user_params={"HII_DIM": 50, "BOX_LEN": 100}
     )
 
     # Build a chain to combine the cores. NOTE: signal_core must be *before* ptsource_core
     chain = build_computation_chain([signal_core, ptsource_core], [])
-    ctx = chain.core_context() # this is a helper method that just runs the cores.
+    ctx = chain.core_context()  # this is a helper method that just runs the cores.
 
-    print(ctx.get("lightcone").brightness_temp)
+    mkplot(ctx)
 
 
 def point_sources_and_diffuse():
@@ -59,13 +74,13 @@ def point_sources_and_diffuse():
     ptsource_core(ctx)
     diffuse_core(ctx)
 
-    print(ctx.get("lightcone").brightness_temp)
+    mkplot(ctx)
 
 
 def ptsource_and_instrumental():
     frequencies = np.linspace(150, 160.0, 30)
 
-    ptsource_core = core.CorePointSourceForegrounds(redshifts = 1420./frequencies - 1)
+    ptsource_core = core.CorePointSourceForegrounds(redshifts=1420. / frequencies - 1)
 
     instrumental_core = core.CoreInstrumental(
         antenna_posfile='grid_centres',
@@ -78,8 +93,8 @@ def ptsource_and_instrumental():
     chain = build_computation_chain([ptsource_core, instrumental_core], [])
     ctx = chain.core_context()  # this is a helper method that just runs the cores.
 
-    print(ctx.get("visbilities"))
+    mkplot(ctx)
 
 
-if __name__=="__main__":
-    ptsource_and_instrumental()
+if __name__ == "__main__":
+    point_sources_with_21cmfast()

@@ -77,7 +77,6 @@ class ForegroundsBase:
             except AttributeError:
                 raise ValueError("If no lightcone core is supplied, redshifts must be supplied.")
 
-
         fg_lightcone = self.build_sky(self.frequencies, self.user_params.HII_DIM, self.sky_size, **self.model_params)
         self._add_to_ctx(ctx, fg_lightcone)
 
@@ -110,6 +109,12 @@ class ForegroundsBase:
         "The frequencies associated with slice redshifts, in Hz"
         return 1420e6 / (self.redshifts + 1)
 
+    @property
+    def default_ctx(self):
+        try:
+            return self.LikelihoodComputationChain.core_context()
+        except AttributeError:
+            raise AttributeError("default_ctx is not available unless the likelihood is embedded in a LikelihoodComputationChain")
 
 class CorePointSourceForegrounds(ForegroundsBase):
     """

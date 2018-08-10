@@ -8,17 +8,123 @@ Created on Fri Apr 20 16:54:22 2018
 from builtins import super
 
 from powerbox.dft import fft
-from powerbox.tools import angular_average_nd
+from powerbox.tools import angular_average_nd, get_power
 import numpy as np
 from astropy import constants as const
 from astropy.cosmology import FlatLambdaCDM
 from astropy import units as un
 
-from py21cmmc.likelihood import LikelihoodBase
-from py21cmmc.core import Core21cmFastModule
-from cosmoHammer.ChainContext import ChainContext
+from py21cmmc.mcmc.likelihood import LikelihoodBase
+from py21cmmc.mcmc.core import CoreLightConeModule
+from py21cmmc.mcmc.cosmoHammer import ChainContext
 from cosmoHammer.util import Params
-from .core import CoreInstrumental
+from .core import CoreInstrumental, CoreDiffuseForegrounds, CorePointSourceForegrounds
+
+from os import path
+
+class Likelihood2D(LikelihoodBase):
+    required_cores = [CoreLightConeModule]
+
+    def __init__(self, datafile=None, n_psbins=None, model_uncertainty=0.15,
+                 error_on_model=True,):
+        """
+        Initialize the likelihood.
+
+        Parameters
+        ----------
+        datafile : str, optional
+            The file from which to read the data. Alternatively, the file to which to write the data (see class
+            docstring for how this works).
+        n_psbins : int, optional
+            The number of bins for the spherically averaged power spectrum. By default automatically
+            calculated from the number of cells.
+        model_uncertainty : float, optional
+            The amount of uncertainty in the modelling, per power spectral bin (as fraction of the amplitude).
+        error_on_model : bool, optional
+            Whether the `model_uncertainty` is applied to the model, or the data.
+        """
+        # TODO: 21cmSense noise!
+
+        self.n_psbins = n_psbins
+
+        self.datafile = datafile
+        self.error_on_model = error_on_model
+        self.model_uncertainty = model_uncertainty
+
+    def setup(self):
+        super().setup()
+
+        self.k_data, self.p_data = self.define_data()
+
+        # Here define the variance of the foreground model, once for all.
+        # Note: this will *not* work if foreground parameters are changing!
+        self.foreground_variance = self.numerical_variance()
+
+        # NOTE: we should actually use analytic_variance *and* analytic mean model, rather than numerical!!!
+
+        if self.datafile and not path.exists(self.datafile):
+            # Write out the power spectra to ASCII file
+            print("Writing mock data to file") # TODO: use proper logger.
+            np.savez(self.datafile, k=self.k_data, p=self.p_data)
+
+    def define_data(self):
+        """
+        Defines the data to be used in comparison. In this case, it simulates the data.
+        """
+        if self.datafile and path.exists(self.datafile):
+            data = np.load(self.datafile)
+            return data['k'], data['p']
+        else:
+            return self.simulate(self.default_ctx)
+
+    @staticmethod
+    def compute_power(lightcone, n_psbins=None, log_bins=True):
+        p,k = get_power(lightcone.brightness_temp, boxlength=lightcone.dimensions, res_ndim=2, bin_ave=False, bins=n_psbins)
+        return p, k
+
+    def computeLikelihood(self, ctx, storage):
+        "Compute the likelihood"
+        power, k = self.simulate(ctx)
+
+        # add the power to the written data
+        storage['power'] = power
+        storage['k'] = k
+
+        # TODO: figure out how to use 0.15*P_sig here.
+        var = self.analytic_variance(k)
+        lnl = -0.5 * np.sum((power - self.p_data) ** 2 / self.foreground_variance)
+        return lnl
+
+    def analytic_variance(self, k):
+        var = 0
+        for m in self.LikelihoodComputationChain.getCoreModules():
+            if isinstance(m, CorePointSourceForegrounds):
+                params = m.model_params
+                # <get analytic cov...>
+                # var += ...
+            elif isinstance(m, CoreDiffuseForegrounds):
+                params = m.model_params
+                # < get analytic cov...>
+                # var += ....
+
+        return var
+
+    def numerical_variance(self, nrealisations=200):
+        p = []
+        for m in self.LikelihoodComputationChain.getCoreModules():
+            if isinstance(m, CorePointSourceForegrounds):
+                ctx = ChainContext(None, {})
+                for i in range(nrealisations):
+                    m(ctx)
+                    p.append(self.simulate(ctx)[0])
+
+        p = np.array(p)
+        return np.var(p, axis=0)
+
+
+    def simulate(self, ctx):
+        lightcone = ctx.get('lightcone')
+        return self.compute_power(lightcone, self.n_psbins, log_bins=self.logk)
 
 
 class LikelihoodForeground2D(LikelihoodBase):
