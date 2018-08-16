@@ -18,15 +18,16 @@ from py21cmmc.mcmc.likelihood import LikelihoodBase
 from py21cmmc.mcmc.core import CoreLightConeModule
 from py21cmmc.mcmc.cosmoHammer import ChainContext
 from cosmoHammer.util import Params
-from .core import CoreInstrumental, CoreDiffuseForegrounds, CorePointSourceForegrounds
+from .core import CoreInstrumental, CoreDiffuseForegrounds, CorePointSourceForegrounds, ForegroundsBase
 
 from os import path
+
 
 class Likelihood2D(LikelihoodBase):
     required_cores = [CoreLightConeModule]
 
     def __init__(self, datafile=None, n_psbins=None, model_uncertainty=0.15,
-                 error_on_model=True,):
+                 error_on_model=True, nrealisations=200):
         """
         Initialize the likelihood.
 
@@ -43,56 +44,44 @@ class Likelihood2D(LikelihoodBase):
         error_on_model : bool, optional
             Whether the `model_uncertainty` is applied to the model, or the data.
         """
+        super().__init__(datafile)
+
         # TODO: 21cmSense noise!
 
         self.n_psbins = n_psbins
-
-        self.datafile = datafile
         self.error_on_model = error_on_model
         self.model_uncertainty = model_uncertainty
+        self.nrealisations = nrealisations
 
     def setup(self):
         super().setup()
 
-        self.k_data, self.p_data = self.define_data()
+        self.kperp_data, self.kpar_data, self.p_data = self.data['kperp'], self.data['kpar'], self.data['p']
 
         # Here define the variance of the foreground model, once for all.
         # Note: this will *not* work if foreground parameters are changing!
-        self.foreground_variance = self.numerical_variance()
+        self.foreground_mean, self.foreground_variance = self.numerical_mean_and_variance(self.nrealisations)
 
+        print("FINISHED EVALUATING MEAN AND VAR")
+        print(self.foreground_mean, self.foreground_variance)
         # NOTE: we should actually use analytic_variance *and* analytic mean model, rather than numerical!!!
 
-        if self.datafile and not path.exists(self.datafile):
-            # Write out the power spectra to ASCII file
-            print("Writing mock data to file") # TODO: use proper logger.
-            np.savez(self.datafile, k=self.k_data, p=self.p_data)
-
-    def define_data(self):
-        """
-        Defines the data to be used in comparison. In this case, it simulates the data.
-        """
-        if self.datafile and path.exists(self.datafile):
-            data = np.load(self.datafile)
-            return data['k'], data['p']
-        else:
-            return self.simulate(self.default_ctx)
 
     @staticmethod
-    def compute_power(lightcone, n_psbins=None, log_bins=True):
-        p,k = get_power(lightcone.brightness_temp, boxlength=lightcone.dimensions, res_ndim=2, bin_ave=False, bins=n_psbins)
-        return p, k
+    def compute_power(lightcone, n_psbins=None):
+        p, kperp, kpar = get_power(lightcone.brightness_temp, boxlength=lightcone.lightcone_dimensions, res_ndim=2, bin_ave=False,
+                        bins=n_psbins, get_variance=False)
+        return p, kperp, kpar
 
     def computeLikelihood(self, ctx, storage):
         "Compute the likelihood"
-        power, k = self.simulate(ctx)
+        data = self.simulate(ctx)
 
         # add the power to the written data
-        storage['power'] = power
-        storage['k'] = k
+        storage.update(**data)
 
         # TODO: figure out how to use 0.15*P_sig here.
-        var = self.analytic_variance(k)
-        lnl = -0.5 * np.sum((power - self.p_data) ** 2 / self.foreground_variance)
+        lnl = - 0.5 * np.sum((data['p']+self.foreground_mean - self.p_data) ** 2 / (self.foreground_variance + (0.15*data['p'])**2))
         return lnl
 
     def analytic_variance(self, k):
@@ -109,22 +98,29 @@ class Likelihood2D(LikelihoodBase):
 
         return var
 
-    def numerical_variance(self, nrealisations=200):
+    def numerical_mean_and_variance(self, nrealisations=200):
         p = []
-        for m in self.LikelihoodComputationChain.getCoreModules():
-            if isinstance(m, CorePointSourceForegrounds):
-                ctx = ChainContext(None, {})
-                for i in range(nrealisations):
-                    m(ctx)
-                    p.append(self.simulate(ctx)[0])
+        var = 0
+        mean = 0
+        for core in self.foreground_cores:
+            for i in range(nrealisations):
+                power = self.compute_power(core.mock_lightcone(), self.n_psbins)[0]
+                p.append(power)
+            mean += np.mean(p, axis=0)
+            var += np.var(p, axis=0)
 
-        p = np.array(p)
-        return np.var(p, axis=0)
-
+        return mean, var
 
     def simulate(self, ctx):
-        lightcone = ctx.get('lightcone')
-        return self.compute_power(lightcone, self.n_psbins, log_bins=self.logk)
+        p, kperp, kpar = self.compute_power(ctx.get('lightcone'), self.n_psbins)
+        return dict(p=p, kperp=kperp, kpar=kpar[0]) # have to get kpar[0], because its a list of arrays.
+
+    @property
+    def foreground_cores(self):
+        try:
+            return [m for m in self.LikelihoodComputationChain.getCoreModules() if isinstance(m, ForegroundsBase)]
+        except AttributeError:
+            raise AttributeError("foreground_cores is not available unless emedded in a LikelihoodComputationChain, after setup")
 
 
 class LikelihoodForeground2D(LikelihoodBase):

@@ -4,3 +4,9 @@
 *.pyc
 
 devel/\.ipynb_checkpoints/
+
+*.png
+
+*.pdf
+
+devel/data/

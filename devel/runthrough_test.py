@@ -1,74 +1,38 @@
-from py21cmmc_fg.core import CoreForegrounds, CoreInstrumental
-from py21cmmc_fg.likelihood import LikelihoodForeground2D
-from py21cmmc.mcmc import run_mcmc
-import os
+from py21cmmc_fg.likelihood import Likelihood2D
+from py21cmmc_fg.core import CorePointSourceForegrounds
 
-# ====== Manually set parameters for the run =================================
-parameters = {"HII_EFF_FACTOR": [ 30.0, 10.0, 50.0, 3.0]}
+from py21cmmc.mcmc.mcmc import run_mcmc
+from py21cmmc.mcmc.core import CoreLightConeModule
 
-datadir = os.path.expanduser("~/Documents/py21cmmc_fg_runs")
-model_name = "test"
+model_name = "runthrough_test"
 
-box_dim = {
-    "HII_DIM": 30,
-    "BOX_LEN": 50.0
-}
-
-flag_options = {
-    'redshifts': 7.0
-}
-
-fg_core = CoreForegrounds(
-    pt_source_params=dict(
-        S_min=1e-1,
-        S_max=1.0
+lc_core = CoreLightConeModule(
+    redshift=7.0,
+    max_redshift=8.0,
+    user_params=dict(
+        HII_DIM=50,
+        BOX_LEN=100.0
     ),
-    diffuse_params=dict(
-        u0=10.0,
-        eta = 0.01,
-        rho = -2.7,
-        mean_temp=253e3,
-        kappa=-2.55
-    ),
-    add_point_sources=True,
-    add_diffuse=True
+    regenerate=False
 )
 
-instr_core = CoreInstrumental(
-    antenna_posfile="grid_centres",
-    freq_min=150.0, freq_max=160.0, nfreq=35,
-    tile_diameter=4.0,
-    max_bl_length=150.0
+fg_core = CorePointSourceForegrounds()
+
+likelihood = Likelihood2D(
+    datafile = "data/runthrough_test.npz",
 )
-# ============================================================================
 
-filename_of_data = os.path.join(datadir, "data.txt")
-box_dim['DIREC'] = datadir
-
-try:
-    os.mkdir(datadir)
-except:
-    pass
-
-lk_fg = LikelihoodForeground2D(filename_of_data, box_dim=box_dim, flag_options=flag_options, n_psbins=20)
-
-if not os.path.exists(filename_of_data):
-    lk_fg.simulate_data(fg_core, instr_core, parameters)
-
-run_mcmc(
-    redshift=flag_options['redshifts'],
-    parameters=parameters,
-    datadir=datadir,
+chain = run_mcmc(
+    [lc_core, fg_core], likelihood,
+    datadir='data',
     model_name=model_name,
-    box_dim=box_dim,
-    flag_options=flag_options,
-    extra_core_modules=[
-        fg_core,
-        instr_core
-    ],
-    likelihood_modules=[lk_fg],
-    walkersRatio=2,
-    burninIterations=1,
-    sampleIterations=1,
-    threadCount=1
+    params = dict(
+        HII_EFF_FACTOR=[30.0, 10., 50.0, 3.0],
+        ION_Tvir_MIN = [4.7, 2, 8, 0.1]
+    ),
+    walkersRatio = 2,
+    burninIterations=0,
+    sampleIterations=2,
+    threadCount=6,
+    continue_sampling=False
 )

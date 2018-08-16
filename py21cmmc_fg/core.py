@@ -19,9 +19,9 @@ import py21cmmc as p21
 from astropy.cosmology import Planck15
 
 from py21cmmc import LightCone, UserParams, CosmoParams
+from py21cmmc.mcmc.core import CoreBase
 
-
-class ForegroundsBase:
+class ForegroundsBase(CoreBase):
     """
     A base class which implements some higher-level functionality that all foreground core modules will require.
     """
@@ -33,10 +33,10 @@ class ForegroundsBase:
     )
 
     def __init__(self, redshifts=None, store=None, **kwargs):
+        super().__init__(store)
+
         self.model_params = kwargs
         self.redshifts = redshifts
-
-        self.store = store or {}
 
         self.user_params = UserParams(HII_DIM=self.defaults['sky_cells'], BOX_LEN=self.defaults['box_len'])
         self.cosmo_params = CosmoParams(hlittle=self.defaults['cosmo'].h, OMm=self.defaults['cosmo'].Om0,
@@ -51,14 +51,13 @@ class ForegroundsBase:
             self.user_params = self.lightcone_module.user_params
             self.cosmo_params = self.lightcone_module.cosmo_params
 
-    def prepare_storage(self, ctx, storage):
-        "Add variables to special dict which cosmoHammer will automatically store with the chain."
-        for name, storage_function in self.store.items():
-            try:
-                storage[name] = storage_function(ctx)
-            except Exception:
-                print("Exception while trying to evaluate storage function %s"%name)
-                raise
+            # This is not completely ideal, but because in this
+            # case we depend on the underlying lightcone module,
+            # we need to overwrite the redshifts on setup. Therefore we *run* the underlying lightcone just to
+            # get its redshifts!
+            self.redshifts = self.default_ctx.get("lightcone").lightcone_redshifts
+        elif self.redshifts is None:
+            raise ValueError("If no lightcone core is supplied, redshifts must be supplied.")
 
     def __call__(self, ctx):
         """
@@ -68,33 +67,35 @@ class ForegroundsBase:
         a foreground-contaminated version with the same shape (but in Jy/sr rather than mK). It also adds the
         variables "frequencies" and "sky_size".
         """
-
-        lightcone = ctx.get('lightcone', None)
-
-        if self.redshifts is None:
-            try:
-                self.redshifts = lightcone.lightcone_redshifts
-            except AttributeError:
-                raise ValueError("If no lightcone core is supplied, redshifts must be supplied.")
-
-        fg_lightcone = self.build_sky(self.frequencies, self.user_params.HII_DIM, self.sky_size, **self.model_params)
-        self._add_to_ctx(ctx, fg_lightcone)
+        # lightcone = ctx.get('lightcone', None)
+        #
+        # fg_lightcone = self.build_sky(self.frequencies, self.user_params.HII_DIM, self.sky_size, **self.model_params)
+        # self._add_to_ctx(ctx, fg_lightcone)
+        #
+        pass
 
     def _add_to_ctx(self, ctx, new):
 
         if not ctx.contains("lightcone"):
-            ctx.add(
-                "lightcone",
-                LightCone( # Create a mock lightcone that can be read by future likelihoods as if it were the real deal.
-                    redshift = self.redshifts.min(),
-                    user_params = self.user_params,
-                    cosmo_params = self.cosmo_params,
-                    astro_params = None, flag_options = None, brightness_temp = new
-                )
-            )
+            ctx.add("lightcone",self.mock_lightcone(fg=new))
         else:
             # Add new bit to old lightcone
             ctx.get("lightcone").brightness_temp += new
+
+    def mock_lightcone(self, fg=None):
+        """
+        Create and return a mock LightCone object with foregrounds only.
+        :return:
+        """
+        if fg is None:
+            fg = self.build_sky(self.frequencies, self.user_params.HII_DIM, self.sky_size, **self.model_params)
+
+        return LightCone( # Create a mock lightcone that can be read by future likelihoods as if it were the real deal.
+                    redshift = self.redshifts.min(),
+                    user_params = self.user_params,
+                    cosmo_params = self.cosmo_params,
+                    astro_params = None, flag_options = None, brightness_temp = fg
+                )
 
     @staticmethod
     def get_sky_size(boxsize, redshifts, cosmo):
@@ -109,12 +110,6 @@ class ForegroundsBase:
         "The frequencies associated with slice redshifts, in Hz"
         return 1420e6 / (self.redshifts + 1)
 
-    @property
-    def default_ctx(self):
-        try:
-            return self.LikelihoodComputationChain.core_context()
-        except AttributeError:
-            raise AttributeError("default_ctx is not available unless the likelihood is embedded in a LikelihoodComputationChain")
 
 class CorePointSourceForegrounds(ForegroundsBase):
     """
