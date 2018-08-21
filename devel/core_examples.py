@@ -13,31 +13,27 @@ import matplotlib.pyplot as plt
 PLOT = True
 
 
-def mkplot(ctx):
+def mkplot(lightcone):
     if PLOT:
-        plt.imshow(ctx.get("lightcone").brightness_temp[:, :, 0])
+        plt.imshow(lightcone[:, :, 0])
         plt.colorbar()
         plt.savefig("figure.png")
 
     else:
-        print(ctx.get("lightcone").brightness_temp)
+        print(lightcone)
 
 
 def point_sources_only():
     # To change the size parameters for every kind of foreground, modify
     # the class variable:
-    core.ForegroundsBase.defaults['box_len'] = 100.0
-    core.ForegroundsBase.defaults['sky_cells'] = 80
+    core.ForegroundsBase.defaults['box_len'] = 10000.0
+    core.ForegroundsBase.defaults['sky_cells'] = 350
 
     # Make a core, with no 21cmFAST signal.
     ptsource_core = core.CorePointSourceForegrounds(redshifts=np.linspace(7, 8, 25))
-
-    # Create an empty context, required to call the core.
-    ctx = ChainContext(parent=None, params={})
-
-    # Call the core.
-    ptsource_core(ctx)
-    mkplot(ctx)
+    
+    lightcone = ptsource_core.build_sky(ptsource_core.frequencies, ptsource_core.sky_cells, ptsource_core.sky_size)
+    mkplot(lightcone)
 
 
 def point_sources_with_21cmfast():
@@ -95,6 +91,6 @@ def ptsource_and_instrumental():
 
     mkplot(ctx)
 
-
+## Change this to whichever one you want to run
 if __name__ == "__main__":
-    point_sources_with_21cmfast()
+    point_sources_only()

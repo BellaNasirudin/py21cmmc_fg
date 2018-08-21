@@ -11,7 +11,7 @@ lc_core = CoreLightConeModule(
     max_redshift=8.0,
     user_params=dict(
         HII_DIM=50,
-        BOX_LEN=100.0
+        BOX_LEN=200.0
     ),
     regenerate=False
 )
@@ -19,7 +19,7 @@ lc_core = CoreLightConeModule(
 fg_core = CorePointSourceForegrounds()
 
 likelihood = Likelihood2D(
-    datafile = "data/runthrough_test.npz",
+    datafile = "data/runthrough_test",
 )
 
 chain = run_mcmc(

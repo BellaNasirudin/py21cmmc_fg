@@ -67,11 +67,11 @@ class ForegroundsBase(CoreBase):
         a foreground-contaminated version with the same shape (but in Jy/sr rather than mK). It also adds the
         variables "frequencies" and "sky_size".
         """
-        # lightcone = ctx.get('lightcone', None)
-        #
-        # fg_lightcone = self.build_sky(self.frequencies, self.user_params.HII_DIM, self.sky_size, **self.model_params)
-        # self._add_to_ctx(ctx, fg_lightcone)
-        #
+#        lightcone = ctx.get('lightcone', None)
+#        
+#        fg_lightcone = self.build_sky(self.frequencies, self.user_params.HII_DIM, self.sky_size, **self.model_params)
+#        self._add_to_ctx(ctx, fg_lightcone)
+        
         pass
 
     def _add_to_ctx(self, ctx, new):
