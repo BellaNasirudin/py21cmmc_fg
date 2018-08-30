@@ -89,7 +89,7 @@ class ForegroundsBase(CoreBase):
         """
         if fg is None:
             fg = self.build_sky(self.frequencies, self.user_params.HII_DIM, self.sky_size, **self.model_params)
-
+  
         return LightCone( # Create a mock lightcone that can be read by future likelihoods as if it were the real deal.
                     redshift = self.redshifts.min(),
                     user_params = self.user_params,

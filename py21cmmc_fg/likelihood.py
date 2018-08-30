@@ -19,9 +19,12 @@ from py21cmmc.mcmc.core import CoreLightConeModule
 from py21cmmc.mcmc.cosmoHammer import ChainContext
 from cosmoHammer.util import Params
 from .core import CoreInstrumental, CoreDiffuseForegrounds, CorePointSourceForegrounds, ForegroundsBase
+from scipy.sparse import block_diag
+from sksparse.cholmod import cholesky
 
-from os import path
-
+from numpy.linalg import slogdet, solve
+from scipy.sparse import issparse
+import h5py
 
 class Likelihood2D(LikelihoodBase):
     required_cores = [CoreLightConeModule]
@@ -57,46 +60,96 @@ class Likelihood2D(LikelihoodBase):
         super().setup()
 
         self.kperp_data, self.kpar_data, self.p_data = self.data['kperp'], self.data['kpar'], self.data['p']
+        self.p_data += self.numerical_covariance(1)[0] ## adding foregrounds to our signal
 
         # Here define the variance of the foreground model, once for all.
         # Note: this will *not* work if foreground parameters are changing!
-        self.foreground_mean, self.foreground_variance = self.numerical_mean_and_variance(self.nrealisations)
+#        self.foreground_mean, self.foreground_variance = self.numerical_mean_and_variance(self.nrealisations)
+        self.foreground_mean, self.foreground_covariance = self.numerical_covariance(self.nrealisations)
 
-        print("FINISHED EVALUATING MEAN AND VAR")
-        print(self.foreground_mean, self.foreground_variance)
         # NOTE: we should actually use analytic_variance *and* analytic mean model, rather than numerical!!!
 
 
     @staticmethod
     def compute_power(lightcone, n_psbins=None):
+        """
+        Compute the 2D power spectrum
+        Parameters
+        ----------
+        lightcone: 
+        """
         p, kperp, kpar = get_power(lightcone.brightness_temp, boxlength=lightcone.lightcone_dimensions, res_ndim=2, bin_ave=False,
                         bins=n_psbins, get_variance=False)
-        return p, kperp, kpar
 
-    def computeLikelihood(self, ctx, storage):
+        return p[:,int(len(kpar[0])/2):], kperp, kpar[0][int(len(kpar[0])/2):]
+
+    def computeLikelihood(self, ctx, storage, variance=False):
         "Compute the likelihood"
         data = self.simulate(ctx)
-
         # add the power to the written data
         storage.update(**data)
-
+        
+        if variance is True:
         # TODO: figure out how to use 0.15*P_sig here.
-        lnl = - 0.5 * np.sum((data['p']+self.foreground_mean - self.p_data) ** 2 / (self.foreground_variance + (0.15*data['p'])**2))
+            lnl = - 0.5 * np.sum((data['p']+self.foreground_mean - self.p_data) ** 2 / (self.foreground_variance + (0.15*data['p'])**2))
+        else:
+            lnl = self.lognormpdf(data['p'], self.foreground_covariance, len(self.kpar_data) )
+        print("LIKELIHOOD IS ", lnl )
+
         return lnl
+    
+    def numerical_covariance(self,nrealisations=200):
+        """
+        Calculate the covariance of the foregrounds BEFORE the MCMC
+    
+        Parameters
+        ----------
+        
+        nrealisations: int, optional
+            Number of realisations to find the covariance.
+        
+        Output
+        ------
+        
+        mean:(nperp, npar)-array
+            The mean 2D power spectrum of the foregrounds.
+            
+        cov: 
+            The sparse block diagonal matrix of the covariance if nrealisation is not 1
+            Else it is 0
+        """
+        p = []
+        mean = 0
+        for core in self.foreground_cores:
+            for ii in range(nrealisations):
+                power = self.compute_power(core.mock_lightcone(), self.n_psbins)[0]
+                p.append(power)
+            
+            mean += np.mean(p, axis=0)
+            
+        if(nrealisations>1):
+            cov = block_diag([np.cov(x) for x in np.array(p).transpose((2,1,0))], format='csc')
+        else:
+            cov = 0
 
-    def analytic_variance(self, k):
-        var = 0
-        for m in self.LikelihoodComputationChain.getCoreModules():
-            if isinstance(m, CorePointSourceForegrounds):
-                params = m.model_params
-                # <get analytic cov...>
-                # var += ...
-            elif isinstance(m, CoreDiffuseForegrounds):
-                params = m.model_params
-                # < get analytic cov...>
-                # var += ....
+        return mean, cov
 
-        return var
+    def lognormpdf(self, model , cov, blocklen=None):
+        """
+        Calculate gaussian probability log-density of x, when x ~ N(mu,sigma), and cov is sparse.
+    
+        Code adapted from https://stackoverflow.com/a/16654259
+        """
+        chol_deco = cholesky(cov)
+
+        nx = len(model.flatten())
+        norm_coeff = nx * np.log(2 * np.pi) + chol_deco.logdet()
+        
+        err = ((self.p_data) - (model+self.foreground_mean)).T.flatten()
+
+        numerator = chol_deco.solve_A(err).T.dot(err)
+        
+        return -0.5*(norm_coeff+numerator)            
 
     def numerical_mean_and_variance(self, nrealisations=200):
         p = []
@@ -110,10 +163,25 @@ class Likelihood2D(LikelihoodBase):
             var += np.var(p, axis=0)
 
         return mean, var
+    
+    def analytic_variance(self, k):
+        var = 0
+        for m in self.LikelihoodComputationChain.getCoreModules():
+            if isinstance(m, CorePointSourceForegrounds):
+                params = m.model_params
+                # <get analytic cov...>
+                # var += ...
+            elif isinstance(m, CoreDiffuseForegrounds):
+                params = m.model_params
+                # < get analytic cov...>
+                # var += ....
 
+        return var
+    
     def simulate(self, ctx):
         p, kperp, kpar = self.compute_power(ctx.get('lightcone'), self.n_psbins)
-        return dict(p=p, kperp=kperp, kpar=kpar[0]) # have to get kpar[0], because its a list of arrays.
+        
+        return dict(p=p, kperp=kperp, kpar=kpar)
 
     @property
     def foreground_cores(self):
