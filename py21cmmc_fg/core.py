@@ -99,7 +99,7 @@ class ForegroundsBase(CoreBase):
 
     @staticmethod
     def get_sky_size(boxsize, redshifts, cosmo):
-        return 2 * np.arctan(boxsize / (2 * cosmo.comoving_transverse_distance([np.mean(redshifts)]).value))
+        return 2 * np.arctan(boxsize / (2 * float(cosmo.comoving_transverse_distance([np.mean(redshifts)]).value)))
 
     @property
     def sky_size(self):
@@ -158,11 +158,14 @@ class CorePointSourceForegrounds(ForegroundsBase):
         source_count = lambda x: alpha * x ** (-beta)
 
         # Find the mean number of sources
-        n_bar = quad(source_count, S_min, S_max)[0]
+        n_bar = quad(source_count, S_min, S_max)[0] * (sky_size)**2 # Need to multiply by sky size in steradian!
 
         # Generate the number of sources following poisson distribution
-        N_sources = np.random.poisson(n_bar)
-
+        # Make sure it's not 0!
+        N_sources = 0
+        while (N_sources==0):
+            N_sources = np.random.poisson(n_bar)
+        
         # Generate the point sources in unit of Jy and position using uniform distribution
         S_0 = ((S_max ** (1 - beta) - S_min ** (1 - beta)) * np.random.uniform(size=N_sources) + S_min ** (
                 1 - beta)) ** (1 / (1 - beta))

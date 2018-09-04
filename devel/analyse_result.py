@@ -27,15 +27,3 @@ print(samples.param_guess)
 
 analyse.corner_plot(samples)
 
-PS = h5py.File("data/power_spectrum","r")
-
-plt.figure(figsize=(12,8))
-for ii in range(niter*nwalkers):
-    p_data = PS["p_%i" %ii][:]
-    k_data = PS["k_%i" %ii][:-1]
-    plt.loglog(k_data,p_data,'k')
-    plt.xlabel("k")
-    plt.ylabel("P")
-    plt.title("Variance %i %i" %(niter, nwalkers))
-
-PS.close()

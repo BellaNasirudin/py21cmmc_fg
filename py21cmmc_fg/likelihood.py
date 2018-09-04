@@ -60,13 +60,14 @@ class Likelihood2D(LikelihoodBase):
         super().setup()
 
         self.kperp_data, self.kpar_data, self.p_data = self.data['kperp'], self.data['kpar'], self.data['p']
-        self.p_data += self.numerical_covariance(1)[0] ## adding foregrounds to our signal
+        self.foreground_data = self.numerical_covariance(1)[0]
 
         # Here define the variance of the foreground model, once for all.
         # Note: this will *not* work if foreground parameters are changing!
 #        self.foreground_mean, self.foreground_variance = self.numerical_mean_and_variance(self.nrealisations)
         self.foreground_mean, self.foreground_covariance = self.numerical_covariance(self.nrealisations)
-
+        print(np.min(self.kperp_data), np.max(self.kperp_data), np.min(self.kpar_data), np.max(self.kpar_data))
+        
         # NOTE: we should actually use analytic_variance *and* analytic mean model, rather than numerical!!!
 
 
@@ -78,7 +79,7 @@ class Likelihood2D(LikelihoodBase):
         ----------
         lightcone: 
         """
-        p, kperp, kpar = get_power(lightcone.brightness_temp, boxlength=lightcone.lightcone_dimensions, res_ndim=2, bin_ave=False,
+        p, kperp, kpar = get_power(lightcone.brightness_temp * np.hanning(np.shape(lightcone.brightness_temp)[-1]), boxlength=lightcone.lightcone_dimensions, res_ndim=2, bin_ave=False,
                         bins=n_psbins, get_variance=False)
 
         return p[:,int(len(kpar[0])/2):], kperp, kpar[0][int(len(kpar[0])/2):]
@@ -111,7 +112,7 @@ class Likelihood2D(LikelihoodBase):
         Output
         ------
         
-        mean:(nperp, npar)-array
+        mean: (nperp, npar)-array
             The mean 2D power spectrum of the foregrounds.
             
         cov: 
@@ -128,7 +129,7 @@ class Likelihood2D(LikelihoodBase):
             mean += np.mean(p, axis=0)
             
         if(nrealisations>1):
-            cov = block_diag([np.cov(x) for x in np.array(p).transpose((2,1,0))], format='csc')
+            cov = [np.cov(x) for x in np.array(p).transpose((2,1,0))]
         else:
             cov = 0
 
@@ -139,13 +140,36 @@ class Likelihood2D(LikelihoodBase):
         Calculate gaussian probability log-density of x, when x ~ N(mu,sigma), and cov is sparse.
     
         Code adapted from https://stackoverflow.com/a/16654259
+        
+        Add the uncertainty of the model to the covariance and find the log-likelihood
+        
+        Parameters
+        ----------
+        
+        model: (nperp, npar)-array
+            The 2D power spectrum of the model signal.
+        
+        cov: (nperp * npar, nperp * npar)-array
+            The sparse block diagonal matrix of the covariance
+            
+        Output
+        ------
+        
+        returns the log-likelihood (float)
         """
+        arr = np.zeros(np.shape(cov[0]))
+        cov_new = []
+        for xi,x in enumerate(cov):            
+            np.fill_diagonal(arr, model[:,xi])
+            cov_new.append(x + (0.15 * arr)**2)
+
+        cov = block_diag(cov_new, format='csc')
         chol_deco = cholesky(cov)
 
         nx = len(model.flatten())
         norm_coeff = nx * np.log(2 * np.pi) + chol_deco.logdet()
         
-        err = ((self.p_data) - (model+self.foreground_mean)).T.flatten()
+        err = ((self.p_data + self.foreground_data) - (model + self.foreground_mean)).T.flatten()
 
         numerator = chol_deco.solve_A(err).T.dot(err)
         
@@ -180,7 +204,7 @@ class Likelihood2D(LikelihoodBase):
     
     def simulate(self, ctx):
         p, kperp, kpar = self.compute_power(ctx.get('lightcone'), self.n_psbins)
-        
+     
         return dict(p=p, kperp=kperp, kpar=kpar)
 
     @property
