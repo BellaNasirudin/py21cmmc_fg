@@ -26,6 +26,7 @@ from numpy.linalg import slogdet, solve
 from scipy.sparse import issparse
 import h5py
 
+
 class Likelihood2D(LikelihoodBase):
     required_cores = [CoreLightConeModule]
 
@@ -99,7 +100,7 @@ class Likelihood2D(LikelihoodBase):
 
         return lnl
     
-    def numerical_covariance(self,nrealisations=200):
+    def numerical_covariance(self, nrealisations=200):
         """
         Calculate the covariance of the foregrounds BEFORE the MCMC
     
@@ -216,7 +217,9 @@ class Likelihood2D(LikelihoodBase):
 
 
 class LikelihoodForeground2D(LikelihoodBase):
-    def __init__(self, datafile, n_uv=None, n_psbins=50, umax = None, frequency_taper=np.hanning, **kwargs):
+    required_cores = [CoreLightConeModule, CoreInstrumental]
+
+    def __init__(self, datafile, n_uv=None, n_psbins=50, umax = None, frequency_taper=np.hanning):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
 
@@ -250,8 +253,8 @@ class LikelihoodForeground2D(LikelihoodBase):
             take single argument, N.
         """
 
-        super().__init__(**kwargs)
-        self.datafile = datafile
+        super().__init__(datafile=datafile)
+
         self.n_uv = n_uv
         self.n_psbins = n_psbins
         self.umax = umax
@@ -263,38 +266,24 @@ class LikelihoodForeground2D(LikelihoodBase):
 
         Data should be in an npz file, and contain a "k" and "p" array. k should be in 1/Mpc, and p in Mpc**3.
         """
-        data = np.load(self.datafile +".npz")
+        super().setup()
 
-        # TODO: it may be better to read in visbilities, and transform them here an now. In any case, we'll end up with
-        # the following variables after the transformation anyway, so we can work with them.
-        self.baselines = data["baselines"]
-        self.visibilities = data['visibilities']
-        self.frequencies = data["frequencies"]
+        self.baselines = self.data["baselines"]
+        self.visibilities = self.data['visibilities']
+        self.frequencies = self.data["frequencies"]
 
-    def computeLikelihood(self, ctx):
+        self.power2d_data = self.computePower(self.visibilities, self.baselines, self.frequencies)
 
-        # On the first run-through, we *create* the data from visibilities
-        if not hasattr(self, "power2d_data"):
-            # First, check if the frequencies and baselines match up.
-            if not np.all(self.frequencies==ctx.get("frequencies")):
-                raise ValueError("The frequencies of observation and model must match.")
-            if not np.all(self.baselines==ctx.get("baselines")):
-                raise ValueError("The baselines of observation and model must match.")
+        # GET COVARIANCE!
+        self.covariance = ?
 
-            self.power2d_data = self.computePower(
-                dict(
-                    baselines = self.baselines,
-                    visibilities = self.visibilities,
-                    frequencies = self.frequencies,
-                    output = ctx.get('output')
-                )
-            )[0]
+    def computeLikelihood(self, ctx, storage):
 
-        p, k, var = self.computePower(ctx)
+        model = self.simulate(ctx)
 
-        return -0.5 * np.sum((self.power2d_data - p) ** 2 / var)
+        return self.lognormpdf(model, self.power2d_data, self.covariance)
 
-    def computePower(self, ctx):
+    def computePower(self, vis, bl, freq):
         """
         Compute the 2D power spectrum within the current context.
 
@@ -569,7 +558,7 @@ class LikelihoodForeground2D(LikelihoodBase):
 
         return Vol.value
 
-    def simulate_data(self, fg_core, instr_core, params):
+    def simulate(self, ctx):
         """
         Simulate datasets to which this very class instance should be compared, returning their mean and std.
         Writes the information to the datafile of this instance.
@@ -588,74 +577,8 @@ class LikelihoodForeground2D(LikelihoodBase):
             Number of iterations to aggregate.
 
         """
-        core = Core21cmFastModule(
-            parameter_names=params.keys(),
-            box_dim=self._box_dim,
-            flag_options=self._flag_options,
-            astro_params=self._astro_params,
-            cosmo_params=self._cosmo_params
-        )
+        visibilities = ctx.get("visibilities")
+        baselines = ctx.get("baselines")
+        frequencies = ctx.get("frequencies")
 
-        core.setup()
-        fg_core.setup()
-        instr_core.setup()
-
-        params = Params(*[(k, v[1]) for k, v in params.items()])
-        ctx = ChainContext('derp', params)
-
-        # Here is where the __call__ happens!
-        core(ctx)
-        fg_core(ctx)
-        instr_core(ctx)
-
-        np.savez(self.datafile, frequencies=ctx.get("frequencies"), baselines = ctx.get("baselines"),
-                 visibilities=ctx.get("visibilities"))
-
-
-# class LikelihoodForeground1D(LikelihoodForeground2D):
-#     def computePower(self, ctx):
-#         # Read in data from ctx
-#         visibilities = ctx.get("visibilities")
-#         baselines = ctx.get('baselines')
-#         frequencies = ctx.get("frequencies")
-#         n_uv = self.n_uv or ctx.get("output").lightcone_box.shape[0]
-#
-#         ugrid, visgrid, weights = self.grid(visibilities, baselines, frequencies, n_uv)
-#
-#         visgrid, eta = self.frequency_fft(visgrid, frequencies)
-#
-#         # TODO: this is probably wrong!
-#         #weights = np.sum(weights, axis=-1)
-#         power2d, coords  = self.get_1D_power(visgrid, [ugrid, ugrid, eta], weights, frequencies, bins=self.n_psbins )
-#
-#         # Find the 1D Power Spectrum of the visibility
-#         #self.get_1D_power(visgrid, [ugrid, ugrid, eta[0]], weights, frequencies, bins=self.n_psbins)
-#         return power2d, coords
-#
-#     def get_1D_power(self, visibility, coords, weights, linFrequencies, bins=100):
-#
-#         print("Finding the power spectrum")
-#         ## Change the units of coords to Mpc
-#         z_mid = (1420e6) / (np.mean(linFrequencies)) - 1
-#         coords[0] = 2 * np.pi * coords[0] / cosmo.comoving_transverse_distance([z_mid])
-#         coords[1] = 2 * np.pi * coords[1] / cosmo.comoving_transverse_distance([z_mid])
-#         coords[2] = 2 * np.pi * coords[2] * (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(
-#             z_mid) / (const.c * (1 + z_mid) ** 2)
-#
-#         # Change the unit of visibility
-#         visibility = visibility / CoreForegrounds.conversion_factor_K_to_Jy() * self.hz_to_mpc(np.min(linFrequencies),
-#                                                                                                np.max(
-#                                                                                                    linFrequencies)) * self.sr_to_mpc2(
-#             z_mid)
-#
-#         # Square the visibility
-#         visibility_sq = np.abs(visibility) ** 2
-#
-#         # TODO: check if this is correct (reshaping might be in wrong order)
-#         weights = np.repeat(weights, len(coords[2])).reshape((len(coords[0]), len(coords[1]), len(coords[2])))
-#
-#         PS_mK2Mpc6, k_Mpc = angular_average_nd(visibility_sq, coords, bins=bins, weights=weights)
-#
-#         PS_mK2Mpc3 = PS_mK2Mpc6 / self.volume(z_mid, np.min(linFrequencies), np.max(linFrequencies))
-#
-#         return PS_mK2Mpc3, k_Mpc
+        return dict(visibilities=visibilities, baselines=baselines, frequencies=frequencies)

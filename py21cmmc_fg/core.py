@@ -245,7 +245,7 @@ class CoreDiffuseForegrounds(ForegroundsBase):
         return Tbins
 
 
-class CoreInstrumental:
+class CoreInstrumental(CoreBase):
     """
     Core MCMC class which converts 21cmFAST *lightcone* output into a mock observation, sampled at specific baselines.
 
@@ -288,15 +288,6 @@ class CoreInstrumental:
         self.integration_time = integration_time
         self.Tsys = Tsys
         self.store = store or {}
-
-    def prepare_storage(self, ctx, storage):
-        "Add variables to special dict which cosmoHammer will automatically store with the chain."
-        for name, storage_function in self.store.items():
-            try:
-                storage[name] = storage_function(ctx)
-            except Exception:
-                print("Exception while trying to evaluate storage function %s"%name)
-                raise
 
     def setup(self):
         """
