@@ -76,7 +76,7 @@ def point_sources_and_diffuse():
 def ptsource_and_instrumental():
     frequencies = np.linspace(150, 160.0, 30)
 
-    ptsource_core = core.CorePointSourceForegrounds(redshifts=1420. / frequencies - 1)
+    ptsource_core = core.CorePointSourceForegrounds(redshifts = 1420. / frequencies - 1)
 
     instrumental_core = core.CoreInstrumental(
         antenna_posfile='grid_centres',
@@ -93,4 +93,5 @@ def ptsource_and_instrumental():
 
 ## Change this to whichever one you want to run
 if __name__ == "__main__":
-    point_sources_only()
+    ptsource_and_instrumental()
+

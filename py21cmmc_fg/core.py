@@ -11,7 +11,7 @@ from scipy.integrate import quad
 import numpy as np
 from astropy import constants as const
 from astropy import units as un
-from scipy.interpolate import RegularGridInterpolator
+from scipy.interpolate import RegularGridInterpolator, RectBivariateSpline
 from powerbox.dft import fft
 from powerbox import LogNormalPowerBox
 from os import path
@@ -32,7 +32,7 @@ class ForegroundsBase(CoreBase):
         cosmo = Planck15,
     )
 
-    def __init__(self, redshifts=None, store=None, **kwargs):
+    def __init__(self, redshifts=None, sky_size = None, sky_cells = None, store=None, **kwargs):
         super().__init__(store)
 
         self.model_params = kwargs
@@ -41,7 +41,7 @@ class ForegroundsBase(CoreBase):
         self.user_params = UserParams(HII_DIM=self.defaults['sky_cells'], BOX_LEN=self.defaults['box_len'])
         self.cosmo_params = CosmoParams(hlittle=self.defaults['cosmo'].h, OMm=self.defaults['cosmo'].Om0,
                                         OMb=self.defaults['cosmo'].Ob0)
-
+        
     def setup(self):
         for m in self.LikelihoodComputationChain.getCoreModules():
             if isinstance(m, p21.mcmc.core.CoreLightConeModule):
@@ -55,7 +55,8 @@ class ForegroundsBase(CoreBase):
             # case we depend on the underlying lightcone module,
             # we need to overwrite the redshifts on setup. Therefore we *run* the underlying lightcone just to
             # get its redshifts!
-            self.redshifts = self.default_ctx.get("lightcone").lightcone_redshifts
+#            self.redshifts = self.default_ctx.get("lightcone").lightcone_redshifts
+
         elif self.redshifts is None:
             raise ValueError("If no lightcone core is supplied, redshifts must be supplied.")
 
@@ -67,28 +68,31 @@ class ForegroundsBase(CoreBase):
         a foreground-contaminated version with the same shape (but in Jy/sr rather than mK). It also adds the
         variables "frequencies" and "sky_size".
         """
-#        lightcone = ctx.get('lightcone', None)
-#        
-#        fg_lightcone = self.build_sky(self.frequencies, self.user_params.HII_DIM, self.sky_size, **self.model_params)
-#        self._add_to_ctx(ctx, fg_lightcone)
+        lightcone = ctx.get('lightcone', None)
         
-        pass
+        if lightcone is None: # Only do this is if there is no lightcone
+            fg_lightcone = self.build_sky(self.frequencies, **self.model_params)
+            self._add_to_ctx(ctx, fg_lightcone)
+        else:
+            pass
 
     def _add_to_ctx(self, ctx, new):
 
         if not ctx.contains("lightcone"):
-            ctx.add("lightcone",self.mock_lightcone(fg=new))
+            ctx.add("lightcone",self.mock_lightcone(self.frequencies, fg=new))
+            ctx.add("redshifts", 1420e6 / self.frequencies -1 )
+
         else:
             # Add new bit to old lightcone
             ctx.get("lightcone").brightness_temp += new
 
-    def mock_lightcone(self, fg=None):
+    def mock_lightcone(self, frequencies, fg=None):
         """
         Create and return a mock LightCone object with foregrounds only.
         :return:
         """
         if fg is None:
-            fg = self.build_sky(self.frequencies, self.user_params.HII_DIM, self.sky_size, **self.model_params)
+            fg = self.build_sky(frequencies, **self.model_params)
   
         return LightCone( # Create a mock lightcone that can be read by future likelihoods as if it were the real deal.
                     redshift = self.redshifts.min(),
@@ -120,7 +124,7 @@ class CorePointSourceForegrounds(ForegroundsBase):
         super().__init__(*args, S_min=S_min, S_max=S_max, alpha=alpha, beta=beta, gamma=gamma, f0=f0, **kwargs)
 
     @staticmethod
-    def build_sky(frequencies, sky_cells, sky_size, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8, f0=150e6):
+    def build_sky(frequencies, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8, f0=150e6, sky_size = 1.0, sky_cells = 600):
         """
         Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
         model.
@@ -190,7 +194,7 @@ class CoreDiffuseForegrounds(ForegroundsBase):
     A 21CMMC Core MCMC module which adds diffuse foregrounds to the base signal.
     """
 
-    def __init__(self, *args, u0=10.0, eta = 0.01, rho = -2.7, mean_temp=253e3, kappa=-2.55, **kwargs):
+    def __init__(self, u0=10.0, eta = 0.01, rho = -2.7, mean_temp=253e3, kappa=-2.55, *args,**kwargs):
         super().__init__(*args, u0=u0, eta = eta, rho = rho, mean_temp=mean_temp, kappa=kappa, **kwargs)
 
     @staticmethod
@@ -252,8 +256,8 @@ class CoreInstrumental(CoreBase):
     Assumes that either a :class:`ForegroundBase` instance, or :class:`py21cmmc.mcmc.core.CoreLightConeModule` is also
     being used (and loaded before this).
     """
-    def __init__(self, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=150.0,
-                 integration_time=1200, Tsys = 0, store=None):
+    def __init__(self, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=300.0,
+                 integration_time=1200, Tsys = 0, sky_size = 1.0, sky_cells = 600, store=None):
         """
         Core MCMC class which converts 21cmFAST *lightcone* output into a mock observation, sampled at specific baselines.
 
@@ -280,12 +284,21 @@ class CoreInstrumental(CoreBase):
 
         integration_time : float,optional
             The length of the observation, in seconds.
+            
+        sky_size : float, optional
+            The sky size in radian
+        
+        sky_cells: int, optional
+            The number of pixels/grids in the sky
+            
         """
         self.antenna_posfile = antenna_posfile
         self.instrumental_frequencies = np.linspace(freq_min*1e6, freq_max*1e6, nfreq)
         self.tile_diameter = tile_diameter * un.m
         self.max_bl_length = max_bl_length
         self.integration_time = integration_time
+        self.sky_size = sky_size
+        self.sky_cells = sky_cells
         self.Tsys = Tsys
         self.store = store or {}
 
@@ -293,6 +306,7 @@ class CoreInstrumental(CoreBase):
         """
         Basically just read in the baselines from file that user gives.
         """
+
         # Setup dependencies
         for m in self.LikelihoodComputationChain.getCoreModules():
             if isinstance(m, ForegroundsBase) or isinstance(m, p21.mcmc.core.CoreLightConeModule):
@@ -317,8 +331,10 @@ class CoreInstrumental(CoreBase):
             # baselines is a dim2 array of x and y displacements.
             self.baselines = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2]) * un.m
 
-            self.baselines = self.baselines[
-                self.baselines[:, 0].value ** 2 + self.baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
+#            self.baselines = self.baselines[
+#                self.baselines[:, 0].value ** 2 + self.baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
+#            self.baselines = self.baselines[self.baselines[:, 0].value <= self.max_bl_length ]
+#            self.baselines = self.baselines[self.baselines[:, 1].value <= self.max_bl_length ]
 
     @property
     def frequencies(self):
@@ -330,35 +346,43 @@ class CoreInstrumental(CoreBase):
         Generate a set of realistic visibilities (i.e. the output we expect from an interferometer) and add it to the
         context. Also, add the linear frequencies of the observation to the context.
         """
-        lightcone = ctx.get("lightcone")
 
-        # Get the redshifts
-        if not hasattr(self, "redshifts"):
+        lightcone = ctx.get("lightcone")
+        self.redshifts = ctx.get("redshifts")
+        
+        # Get the redshifts from lightcone if we don't already have them
+        if self.redshifts is None:# if not hasattr(self, "redshifts"):
             self.redshifts = lightcone.lightcone_redshifts
 
-        boxsize = self._base_module.user_params.BOX_LEN
-        cosmo = self._base_module.cosmo_params.cosmo
-        sky_size = ForegroundsBase.get_sky_size(boxsize, self.redshifts, cosmo)
-
-        vis = self.add_instrument(lightcone.brightness_temp, self.frequencies, sky_size)
+            boxsize = self._base_module.user_params.BOX_LEN
+            cosmo = self._base_module.cosmo_params.cosmo
+            EoR_size = ForegroundsBase.get_sky_size(boxsize, self.redshifts, cosmo)
+            
+            # TODO: stitch stuff together and then coarsen the grid
+            new_sky = self.stitch_boxes(lightcone.brightness_temp, EoR_size)
+            new_sky = self.coarsen_sky(new_sky, n2=self.sky_cells)[0]
+        else:
+            new_sky = lightcone.brightness_temp            
+       
+        vis = self.add_instrument(new_sky, self.frequencies)
         
         ctx.add("visibilities", vis)
-        ctx.add("baselines", self.baselines)
+        ctx.add("baselines", self.baselines.value)
         ctx.add("frequencies", self.instrumental_frequencies)
 
-    def add_instrument(self, lightcone, frequencies, sky_size):
+    def add_instrument(self, lightcone, frequencies):
         # Number of 2D cells in sky array
         sky_cells = np.shape(lightcone)[0]
         
         # Find beam attenuation
-        attenuation, beam_area = self.beam(frequencies, sky_cells, sky_size, self.tile_diameter)
-
+        attenuation, beam_area = self.beam(frequencies, sky_cells, self.sky_size, self.tile_diameter)
+        
         # Change the units of lightcone from mK to Jy
         beam_sky = lightcone * self.conversion_factor_K_to_Jy(frequencies, beam_area) * attenuation
-                                                               
+                                                          
         # Fourier transform image plane to UV plane.
-        uvplane, uv = self.image_to_uv(beam_sky, sky_size)
-
+        uvplane, uv = self.image_to_uv(beam_sky, self.sky_size)
+     
         # This is probably bad, but set baselines if none are given, to coincide exactly with the uv grid.
         if self.baselines is None:
             self.baselines = np.zeros((len(uv[0])**2, 2))
@@ -368,11 +392,12 @@ class CoreInstrumental(CoreBase):
 
         # Fourier Transform over the (u,v) dimension and baselines sampling
         visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, frequencies)
+
         visibilities = self.interpolate_frequencies(visibilities, frequencies, self.instrumental_frequencies)
 
         # Just in case we forget, now the frequencies are all in terms of the instrumental frequencies.
         frequencies = self.instrumental_frequencies
-        beam_area = self.beam(frequencies, sky_cells, sky_size, self.tile_diameter)
+        beam_area = self.beam(frequencies, sky_cells, self.sky_size, self.tile_diameter)
         
         # Add thermal noise using the mean beam area
         visibilities = self.add_thermal_noise(visibilities, frequencies, beam_area[1], self.integration_time,
@@ -508,19 +533,16 @@ class CoreInstrumental(CoreBase):
 
         for i, ff in enumerate(frequencies):
             lamb = const.c / ff.to(1 / un.s)
-            u = (baselines[:,0] / lamb).value
-            v = (baselines[:,1] / lamb).value
+            arr = np.zeros(np.shape(baselines))
+            arr[:, 0] = (baselines[:,0] / lamb).value
+            arr[:, 1] = (baselines[:,1] / lamb).value
 
             real = np.real(uvplane[:,:,i])
             imag = np.imag(uvplane[:,:,i])
 
-            f_real = RegularGridInterpolator([uv[0], uv[1]], real)
-            f_imag = RegularGridInterpolator([uv[0], uv[1]], imag)
-
-            arr = np.zeros((len(u), 2))
-            arr[:, 0] = u
-            arr[:, 1] = v
-
+            f_real = RegularGridInterpolator([uv[0], uv[1]], real, bounds_error=False, fill_value=0)
+            f_imag = RegularGridInterpolator([uv[0], uv[1]], imag, bounds_error=False, fill_value=0)
+            
             FT_real = f_real(arr)
             FT_imag = f_imag(arr)
 
@@ -551,10 +573,14 @@ class CoreInstrumental(CoreBase):
             The interpolated visibilities.
         """
         new_vis = np.zeros((visibilities.shape[0], len(linear_freq)), dtype=np.complex64)
-
+        
+        if(freq_grid[0]>freq_grid[-1]):
+            freq_grid = freq_grid[::-1]
+            visibilities = np.flip(visibilities,1)
+            
         for i, vis in enumerate(visibilities):
-            rl = RegularGridInterpolator((freq_grid[::-1],), np.real(vis)[::-1])(linear_freq)
-            im = RegularGridInterpolator((freq_grid[::-1],), np.imag(vis)[::-1])(linear_freq)
+            rl = RegularGridInterpolator((freq_grid,), np.real(vis))(linear_freq)
+            im = RegularGridInterpolator((freq_grid,), np.imag(vis))(linear_freq)
             new_vis[i] = rl + im * 1j
 
         return new_vis
@@ -617,3 +643,55 @@ class CoreInstrumental(CoreBase):
         visibilities += sigma * (rl_im[0, :] + rl_im[1, :] * 1j)
         
         return visibilities
+    
+    def stitch_boxes(self, lightcone, EoR_size):
+        
+        N_box = int((self.sky_size/EoR_size))
+        
+        new_sky = []
+        
+        for ff in range(np.shape(lightcone)[-1]):
+            
+            sky_temp = lightcone[:,:,ff].copy()
+                
+            for i in range(1,N_box):
+                sky_temp = np.vstack((sky_temp, lightcone[:,:,ff]))
+            
+            sky = sky_temp.copy()
+            
+            for j in range(1,N_box):
+                sky = np.hstack((sky, sky_temp))
+            
+            new_sky.append(sky)
+        
+        new_sky = np.array(new_sky).transpose(1,2,0)
+        
+        return new_sky
+    
+    def coarsen_sky(self, a, centres=None, n2=125):
+        """
+        Coarsen the square matrix a down to n2xn2.
+        """
+        n = np.shape(a)[0]
+        if centres is None:
+            dx = 1.
+            centres = np.arange(n)
+           
+        else:
+            dx = centres[1] - centres[0]
+           
+        db = float(dx)/(float(n2)/n)
+       
+        bvec = np.linspace(centres.min()- dx/2 + db/2, centres.max() + dx/2 - db/2, n2)
+        
+        new = []
+        for ff in range(np.shape(a)[-1]):
+            spl = RectBivariateSpline(centres, centres, a[:,:,ff], kx=1, ky=1)
+           
+            b = spl(bvec, bvec, grid=True)
+            
+            new.append(b)
+        
+        new = np.array(new).transpose(1,2,0)
+        
+        return new, bvec
