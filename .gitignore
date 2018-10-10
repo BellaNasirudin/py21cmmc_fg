@@ -10,3 +10,5 @@ devel/\.ipynb_checkpoints/
 *.pdf
 
 devel/data/
+
+py21cmmc_fg\.egg-info/
