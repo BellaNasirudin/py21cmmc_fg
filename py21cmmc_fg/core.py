@@ -19,11 +19,14 @@ import py21cmmc as p21
 from astropy.cosmology import Planck15
 
 from py21cmmc import LightCone, UserParams, CosmoParams
-from py21cmmc.mcmc.core import CoreBase
+from py21cmmc.mcmc.core import CoreBase, CoreLightConeModule
+
 
 class ForegroundsBase(CoreBase):
     """
     A base class which implements some higher-level functionality that all foreground core modules will require.
+
+    All subclasses of :class:`CoreBase` receive the argument `store`, whose documentation is in the `21CMMC` docs.
     """
     # The defaults dict specifies arguments that need to be set if no CoreLightConeModule is loaded.
     defaults = dict(
@@ -32,10 +35,10 @@ class ForegroundsBase(CoreBase):
         cosmo = Planck15,
     )
 
-    def __init__(self, redshifts=None, sky_size = None, sky_cells = None, store=None, **kwargs):
-        super().__init__(store)
+    def __init__(self, redshifts=None, model_params={}, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-        self.model_params = kwargs
+        self.model_params = model_params
         self.redshifts = redshifts
 
         self.user_params = UserParams(HII_DIM=self.defaults['sky_cells'], BOX_LEN=self.defaults['box_len'])
@@ -68,13 +71,8 @@ class ForegroundsBase(CoreBase):
         a foreground-contaminated version with the same shape (but in Jy/sr rather than mK). It also adds the
         variables "frequencies" and "sky_size".
         """
-        lightcone = ctx.get('lightcone', None)
-        
-        if lightcone is None: # Only do this is if there is no lightcone
-            fg_lightcone = self.build_sky(self.frequencies, **self.model_params)
-            self._add_to_ctx(ctx, fg_lightcone)
-        else:
-            pass
+        fg_lightcone = self.build_sky(self.frequencies, **self.model_params)
+        self._add_to_ctx(ctx, fg_lightcone)
 
     def _add_to_ctx(self, ctx, new):
 
@@ -115,13 +113,30 @@ class ForegroundsBase(CoreBase):
         return 1420e6 / (self.redshifts + 1)
 
 
-class CorePointSourceForegrounds(ForegroundsBase):
+class CoreForegroundsSimulated(ForegroundsBase):
+    def __init__(self, nrealisations=1, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.nrealisations = nrealisations
+
+    def __call__(self, ctx):
+        fg_lightcone = 0
+        for i in range(self.nrealisations):
+            fg_lightcone = self.build_sky(self.frequencies, **self.model_params)
+
+        fg_lightcone /= self.nrealisations
+
+        self._add_to_ctx(ctx, fg_lightcone)
+
+
+class CorePointSourceForegrounds(CoreForegroundsSimulated):
     """
     A 21CMMC Core MCMC module which adds point-source foregrounds to the base signal.
     """
 
     def __init__(self, *args, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8, f0=150e6, **kwargs):
-        super().__init__(*args, S_min=S_min, S_max=S_max, alpha=alpha, beta=beta, gamma=gamma, f0=f0, **kwargs)
+        super().__init__(*args,
+                         model_params=dict(S_min=S_min, S_max=S_max, alpha=alpha, beta=beta, gamma=gamma, f0=f0),
+                         **kwargs)
 
     @staticmethod
     def build_sky(frequencies, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8, f0=150e6, sky_size = 1.0, sky_cells = 600):
@@ -189,13 +204,15 @@ class CorePointSourceForegrounds(ForegroundsBase):
         return sky
 
 
-class CoreDiffuseForegrounds(ForegroundsBase):
+class CoreDiffuseForegrounds(CoreForegroundsSimulated):
     """
     A 21CMMC Core MCMC module which adds diffuse foregrounds to the base signal.
     """
 
-    def __init__(self, u0=10.0, eta = 0.01, rho = -2.7, mean_temp=253e3, kappa=-2.55, *args,**kwargs):
-        super().__init__(*args, u0=u0, eta = eta, rho = rho, mean_temp=mean_temp, kappa=kappa, **kwargs)
+    def __init__(self, *args, u0=10.0, eta = 0.01, rho = -2.7, mean_temp=253e3, kappa=-2.55, **kwargs):
+        super().__init__(*args,
+                         model_params=dict(u0=u0, eta = eta, rho = rho, mean_temp=mean_temp, kappa=kappa),
+                         **kwargs)
 
     @staticmethod
     def build_sky(frequencies, ncells, sky_size, u0=10.0, eta = 0.01, rho = -2.7, mean_temp=253e3, kappa=-2.55):
@@ -256,13 +273,11 @@ class CoreInstrumental(CoreBase):
     Assumes that either a :class:`ForegroundBase` instance, or :class:`py21cmmc.mcmc.core.CoreLightConeModule` is also
     being used (and loaded before this).
     """
+
     def __init__(self, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=300.0,
-                 integration_time=1200, Tsys = 0, sky_size = 1.0, sky_cells = 600, store=None):
+                 integration_time=1200, Tsys = 0, sky_size = 1, sky_size_coord="rad", max_tile_n=50, n_cells=None,
+                 *args, **kwargs):
         """
-        Core MCMC class which converts 21cmFAST *lightcone* output into a mock observation, sampled at specific baselines.
-
-        Assumes that a :class:`ForegroundCore` is also being used (and loaded before this).
-
         Parameters
         ----------
         antenna_posfile : str, {"mwa_phase2", "ska_low_v5"}
@@ -286,35 +301,43 @@ class CoreInstrumental(CoreBase):
             The length of the observation, in seconds.
             
         sky_size : float, optional
-            The sky size in radian
-        
-        sky_cells: int, optional
-            The number of pixels/grids in the sky
-            
+            The sky size to use. If an EoR simulation is used underneath, it will be tiled to ensure it has this
+            final size. If a foreground core is used, its size will be set to be consistent with this value (i.e.
+            this parameter is preferred).
+
+        sky_size_coord : str, optional
+            What co-ordinates the sky size is in. Options are "rad" for radians, "lm" for sin-projected co-ordinates,
+            or "sigma" for beam-widths (the beam is considered Gaussian in lm coordinates).
+
+        n_cells: int, optional
+            The number of pixels per side of the sky grid. Simulations will be coarsened to match this number, where
+            applicable. This is useful for reducing memory usage. Default is the same number of cells as the underlying
+            simulation. If set to zero, no coarsening will be performed.
+
+        Notes
+        -----
+        The choice of sky size can easily result in unphysical results (i.e. more than 180 degrees, or lm > 1). An
+        exception will be raised if this is the case. However, even if not unphysical, it could lead to a very large
+        number of tiled simulations. This is why the `max_tile_n` option is provided. If this is exceeded, an exception
+        will be raised.
         """
+        super().__init__(*args, **kwargs)
+
         self.antenna_posfile = antenna_posfile
         self.instrumental_frequencies = np.linspace(freq_min*1e6, freq_max*1e6, nfreq)
         self.tile_diameter = tile_diameter * un.m
         self.max_bl_length = max_bl_length
         self.integration_time = integration_time
-        self.sky_size = sky_size
-        self.sky_cells = sky_cells
         self.Tsys = Tsys
-        self.store = store or {}
 
-    def setup(self):
-        """
-        Basically just read in the baselines from file that user gives.
-        """
+        # Sky size parameters.
+        self._sky_size = sky_size
+        self._sky_size_coord = sky_size_coord
+        self._max_tile_n = max_tile_n
 
-        # Setup dependencies
-        for m in self.LikelihoodComputationChain.getCoreModules():
-            if isinstance(m, ForegroundsBase) or isinstance(m, p21.mcmc.core.CoreLightConeModule):
-                self._base_module = m # Doesn't really matter which one, we only want to access basic properties.
+        self.n_cells = n_cells
 
-        if not hasattr(self, "_base_module"):
-            raise ValueError("For CoreInstrumental, either a ForegroundBase or CoreLightConeModule must be loaded before it.")
-
+        # Setup baseline lengths.
         if self.antenna_posfile == "grid_centres":
             self.baselines = None
 
@@ -331,13 +354,67 @@ class CoreInstrumental(CoreBase):
             # baselines is a dim2 array of x and y displacements.
             self.baselines = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2]) * un.m
 
-#            self.baselines = self.baselines[
-#                self.baselines[:, 0].value ** 2 + self.baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
-#            self.baselines = self.baselines[self.baselines[:, 0].value <= self.max_bl_length ]
-#            self.baselines = self.baselines[self.baselines[:, 1].value <= self.max_bl_length ]
+            self.baselines = self.baselines[
+               self.baselines[:, 0].value ** 2 + self.baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
+
+    def setup(self):
+        # Set the foreground sky size to this sky size, if necessary.
+        # TODO: this will not work yet, as the sky_size is a property of the foregrounds, not a simple variable.
+        for m in self.LikelihoodComputationChain.getCoreModules():
+            if isinstance(m, CoreForegroundsSimulated):
+                m.sky_size = self.sky_size
+
+        if self.n_cells is None:
+            self.n_cells = self._base_module.user_params.HII_DIM
 
     @property
-    def frequencies(self):
+    def sky_size(self):
+        "The sky size in lm co-ordinates"
+        if self._sky_size_coord == "lm":
+            size = self._sky_size
+        elif self._sky_size_coord == "rad":
+            size = 2 * np.sin(self._sky_size/2) # 2 factors account for centering of sky
+        elif self._sky_size_coord == "sigma":
+            size = self._sky_size * np.max(self.sigma(self.instrumental_frequencies))
+        else:
+            raise ValueError("sky_size_coord must be one of (lm, rad, sigma)")
+
+        if np.sqrt(2) * size/2 > 1:
+            raise ValueError("sky size is unphysical (%s > 1)"%size)
+
+        if size/self.eor_size_lm.min() > self._max_tile_n:
+            raise ValueError("sky size is larger than max requested (must be tiled %s times, but max is %s)"%(size/self.eor_size_lm, self._max_tile_n))
+
+        return size
+
+    @property
+    def eor_size_lm(self):
+        """
+        The size of the base 21cmFAST simulation in lm co-ordinates.
+        """
+        for m in self.LikelihoodComputationChain.getCoreModules():
+            if isinstance(m, CoreLightConeModule):
+                return ForegroundsBase.get_sky_size(m.user_params.BOX_LEN, self.redshifts,
+                                                    m.cosmo_params.cosmo)
+
+        # If no lightcone module is found, raise an exception.
+        raise AttributeError("No eor_size is applicable, as no LightCone module is loaded")
+
+    @property
+    def _base_module(self):
+        "Basic foreground/lightcone module which this requires"
+        if not hasattr(self, "LikelihoodComputationChain"):
+            raise AttributeError("setup() must have been called for the _base_module to exist")
+
+        for m in self.LikelihoodComputationChain.getCoreModules():
+            if isinstance(m, ForegroundsBase) or isinstance(m, p21.mcmc.core.CoreLightConeModule):
+                return m  # Doesn't really matter which one, we only want to access basic properties.
+
+        # If nothing is returned, the correct modules must not have been loaded.
+        raise ValueError("For CoreInstrumental, either a ForegroundBase or CoreLightConeModule must be loaded")
+
+    @property
+    def sim_frequencies(self):
         "The frequencies associated with slice redshifts, in Hz"
         return 1420e6 / (self.redshifts + 1)
 
@@ -348,7 +425,7 @@ class CoreInstrumental(CoreBase):
         """
 
         lightcone = ctx.get("lightcone")
-        self.redshifts = ctx.get("redshifts")
+        self.redshifts = ctx.get("redshifts") # ToDO: something seems fishy here.
         
         # Get the redshifts from lightcone if we don't already have them
         if self.redshifts is None:# if not hasattr(self, "redshifts"):
@@ -357,72 +434,72 @@ class CoreInstrumental(CoreBase):
             boxsize = self._base_module.user_params.BOX_LEN
             cosmo = self._base_module.cosmo_params.cosmo
             EoR_size = ForegroundsBase.get_sky_size(boxsize, self.redshifts, cosmo)
-            
-            # TODO: stitch stuff together and then coarsen the grid
+
             new_sky = self.stitch_boxes(lightcone.brightness_temp, EoR_size)
-            new_sky = self.coarsen_sky(new_sky, n2=self.sky_cells)[0]
+            if self.n_cells > 0:
+                new_sky = self.coarsen_sky(new_sky, n2=self.n_cells)[0]
+
         else:
             new_sky = lightcone.brightness_temp            
        
-        vis = self.add_instrument(new_sky, self.frequencies)
+        vis = self.add_instrument(new_sky)
         
         ctx.add("visibilities", vis)
         ctx.add("baselines", self.baselines.value)
         ctx.add("frequencies", self.instrumental_frequencies)
 
-    def add_instrument(self, lightcone, frequencies):
-        # Number of 2D cells in sky array
-        sky_cells = np.shape(lightcone)[0]
-        
+    def add_instrument(self, lightcone):
         # Find beam attenuation
-        attenuation, beam_area = self.beam(frequencies, sky_cells, self.sky_size, self.tile_diameter)
+        # n_cells is the number of cells per side in the sky of the stitched/coarsened array.
+        # sky_size is in lm co-ordinates
+        attenuation, beam_area = self.beam(self.sim_frequencies, self.n_cells, self.sky_size)
         
         # Change the units of lightcone from mK to Jy
-        beam_sky = lightcone * self.conversion_factor_K_to_Jy(frequencies, beam_area) * attenuation
+        beam_sky = lightcone * self.conversion_factor_K_to_Jy(self.sim_frequencies, beam_area) * attenuation
                                                           
         # Fourier transform image plane to UV plane.
         uvplane, uv = self.image_to_uv(beam_sky, self.sky_size)
      
-        # This is probably bad, but set baselines if none are given, to coincide exactly with the uv grid.
+        # This is probably bad, but set baselines if none are given, to coincide exactly with the uv grid at centre
+        # frequency.
         if self.baselines is None:
             self.baselines = np.zeros((len(uv[0])**2, 2))
             U,V = np.meshgrid(uv[0], uv[1])
-            self.baselines[:, 0] = U.flatten()*(const.c/frequencies.max())
-            self.baselines[:, 1] = V.flatten()*(const.c/frequencies.max())
+            self.baselines[:, 0] = U.flatten()*(const.c/np.mean(self.sim_frequencies))
+            self.baselines[:, 1] = V.flatten()*(const.c/np.mean(self.sim_frequencies))
+            self.baselines = self.baselines * un.m
 
         # Fourier Transform over the (u,v) dimension and baselines sampling
-        visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, frequencies)
+        visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.sim_frequencies)
 
-        visibilities = self.interpolate_frequencies(visibilities, frequencies, self.instrumental_frequencies)
+        visibilities = self.interpolate_frequencies(visibilities, self.sim_frequencies, self.instrumental_frequencies)
 
         # Just in case we forget, now the frequencies are all in terms of the instrumental frequencies.
-        frequencies = self.instrumental_frequencies
-        beam_area = self.beam(frequencies, sky_cells, self.sky_size, self.tile_diameter)
+        beam_area = self.beam(self.instrumental_frequencies, self.n_cells, self.sky_size)[1]
         
         # Add thermal noise using the mean beam area
-        visibilities = self.add_thermal_noise(visibilities, frequencies, beam_area[1], self.integration_time,
+        visibilities = self.add_thermal_noise(visibilities, self.instrumental_frequencies,
+                                              beam_area, self.integration_time,
                                               Tsys=self.Tsys)
 
         return visibilities
 
-    @staticmethod
-    def beam(frequencies, ncells, sky_size, D):
+    def sigma(self, frequencies):
+        "The Gaussian beam width at each instrumental frequency"
+        epsilon = 0.42 # scaling from airy disk to Gaussian
+        return ((epsilon * const.c) / (frequencies/un.s * self.tile_diameter)).to(un.dimensionless_unscaled)
+
+    def beam(self, frequencies, ncells, sky_size):
         """
         Generate a frequency-dependent Gaussian beam attenuation across the sky per frequency.
 
         Parameters
         ----------
-        frequencies : array
-            A set of frequencies (in Hz) at which to evaluate the beam.
-
         ncells : int
             Number of cells in the sky grid.
 
         sky_size : float
-            The extent of the sky in radians.
-        
-        D : float
-            The tile diameter (in m).
+            The extent of the sky in lm.
 
         Returns
         -------
@@ -432,18 +509,15 @@ class CoreInstrumental(CoreBase):
         beam_area : (nfrequencies)-array
             The beam area of the sky (in sr).
         """
-        # First find the sigma of the beam
-        epsilon = 0.42
-
-        frequencies = frequencies / un.s
-        sigma = ((epsilon * const.c) / (frequencies * D)).to(un.dimensionless_unscaled)
 
         # Then create a meshgrid for the beam attenuation on sky array
-        sky_coords_lm = np.sin(np.linspace(-sky_size / 2, sky_size / 2, ncells))
+        sky_coords_lm = np.linspace(-sky_size / 2, sky_size / 2, ncells)
         L, M = np.meshgrid(sky_coords_lm, sky_coords_lm)
         
-        attenuation = np.exp(np.outer(-(L ** 2 + M ** 2), 1. / sigma ** 2).reshape((ncells, ncells, len(frequencies))))
-        beam_area = np.sum(attenuation, axis=(0,1)) * np.diff(sky_coords_lm )[0]**2
+        attenuation = np.exp(np.outer(-(L ** 2 + M ** 2), 1. / self.sigma(frequencies) ** 2).reshape((ncells, ncells, len(frequencies))))
+
+        # Really dodgy integration to get the effective beam area
+        beam_area = np.sum(attenuation, axis=(0, 1)) * np.diff(sky_coords_lm)[0]**2
 
         return attenuation, beam_area
 
@@ -635,38 +709,43 @@ class CoreInstrumental(CoreBase):
             The visibilities at each baseline and frequency with the thermal noise from the sky.
 
         """
-        sigma = Tsys * beam_area / (((const.c) / ((frequencies.max()-frequencies.min()) * (1 / un.s))) ** 2).value / np.sqrt((frequencies.max()-frequencies.min())*delta_t)
+        sigma = Tsys * beam_area / ((const.c / ((frequencies.max()-frequencies.min()) * (1 / un.s))) ** 2).value / np.sqrt((frequencies.max()-frequencies.min())*delta_t)
 
         rl_im = np.random.normal(0, 1, (2, np.shape(visibilities)[0],np.shape(visibilities)[1]))
-        
-        # TODO: check the units of sigma 
-        visibilities += sigma * (rl_im[0, :] + rl_im[1, :] * 1j)
-        
-        return visibilities
-    
+
+        return visibilities + sigma * (rl_im[0, :] + rl_im[1, :] * 1j)
+
     def stitch_boxes(self, lightcone, EoR_size):
-        
-        N_box = int((self.sky_size/EoR_size))
-        
-        new_sky = []
-        
-        for ff in range(np.shape(lightcone)[-1]):
-            
-            sky_temp = lightcone[:,:,ff].copy()
-                
-            for i in range(1,N_box):
-                sky_temp = np.vstack((sky_temp, lightcone[:,:,ff]))
-            
-            sky = sky_temp.copy()
-            
-            for j in range(1,N_box):
-                sky = np.hstack((sky, sky_temp))
-            
-            new_sky.append(sky)
-        
-        new_sky = np.array(new_sky).transpose(1,2,0)
-        
-        return new_sky
+        # TODO: isn't EoR size in radians (or maybe lm)? Then we can't just add it up like this, we have to do the proper
+        # TODO: angle to Mpc calculation.
+        N_box = int(np.ceil(self.sky_size/EoR_size))
+
+        # This in-built function should work out of the box:
+        lightcone =  np.tile(lightcone, (N_box, N_box, 1))
+
+        # Now we need to cut it back a bit to match the actual sky size!
+        n = int(self.sky_size/ (N_box * EoR_size) * len(lightcone))
+        return lightcone[:n, :n]
+
+        # new_sky = []
+        #
+        # for ff in range(lightcone.shape[-1]):
+        #
+        #     sky_temp = lightcone[:, :, ff].copy()
+        #
+        #     for i in range(1,N_box):
+        #         sky_temp = np.vstack((sky_temp, lightcone[:,:,ff]))
+        #
+        #     sky = sky_temp.copy()
+        #
+        #     for j in range(1, N_box):
+        #         sky = np.hstack((sky, sky_temp))
+        #
+        #     new_sky.append(sky)
+        #
+        # new_sky = np.array(new_sky).transpose(1,2,0)
+        #
+        # return new_sky
     
     def coarsen_sky(self, a, centres=None, n2=125):
         """
