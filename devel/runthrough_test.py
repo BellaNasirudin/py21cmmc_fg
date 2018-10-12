@@ -12,8 +12,8 @@ lc_core = CoreLightConeModule(
     redshift=6.0,
     max_redshift=9.0,
     user_params=dict(
-        HII_DIM=50,
-        BOX_LEN=200.0
+        HII_DIM=125,
+        BOX_LEN=500.0
     ),
     regenerate=False
 )
@@ -34,9 +34,9 @@ chain = run_mcmc(
         HII_EFF_FACTOR=[30.0, 10., 50.0, 3.0],
         ION_Tvir_MIN = [4.7, 2, 8, 0.1]
     ),
-    walkersRatio = 2,
+    walkersRatio = 3,
     burninIterations=0,
     sampleIterations=2,
-    threadCount=6,
+    threadCount=3,
     continue_sampling=False
 )
