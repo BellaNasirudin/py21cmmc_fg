@@ -21,10 +21,12 @@ from .core import CoreInstrumental, CoreDiffuseForegrounds, CorePointSourceForeg
 from scipy.sparse import block_diag
 from sksparse.cholmod import cholesky
 
+from scipy import signal
 from numpy.linalg import slogdet, solve
 from scipy.sparse import issparse
 import h5py
 from scipy.interpolate import griddata
+import multiprocessing as mp
 
 class Likelihood2D(LikelihoodBase):
     required_cores = [CoreLightConeModule]
@@ -294,6 +296,15 @@ class LikelihoodInstrumental2D(LikelihoodBase):
 #
 #        return self.lognormpdf(model, self.power2d_data, self.covariance)
     
+    def runLCC(self,core):
+
+        instr_fg = self.LikelihoodComputationChain.getCoreModules()[1].add_instrument(core.mock_lightcone(self.frequencies).brightness_temp , self.frequencies)
+        power, ks = self.compute_power(instr_fg, self.baselines, self.frequencies)
+        
+        return power
+
+
+
     def numerical_covariance(self, nrealisations=200):
         """
         Calculate the covariance of the foregrounds BEFORE the MCMC
@@ -314,16 +325,27 @@ class LikelihoodInstrumental2D(LikelihoodBase):
             The sparse block diagonal matrix of the covariance if nrealisation is not 1
             Else it is 0
         """
-        p = []
+        data = [core for ii in range(nrealisations) for core in self.foreground_cores]
+
+        pool = mp.Pool(3)
+        p = pool.map(self.runLCC,data)
+
         mean = 0
+        offset = nrealisations
         for core in self.foreground_cores:
-            for ii in range(nrealisations):
-                instr_fg = self.LikelihoodComputationChain.getCoreModules()[1].add_instrument(core.mock_lightcone(self.frequencies).brightness_temp , self.frequencies)
-                power, ks = self.compute_power(instr_fg, self.baselines, self.frequencies)
-                
-                p.append(power)#[:np.min(np.where(power<=0)[0])])
-            
-            mean += np.mean(p, axis=0)
+
+            mean+=np.mean(p[:offset])
+            offset+=nrealisations
+
+#        p = []
+#        mean = 0
+#        for core in self.foreground_cores:
+#            for ii in range(nrealisations):
+#                instr_fg = self.LikelihoodComputationChain.getCoreModules()[1].add_instrument(core.mock_lightcone(self.frequencies).brightness_temp , self.frequencies)
+#                power, ks = self.compute_power(instr_fg, self.baselines, self.frequencies)
+#            
+#                p.append(power)#[:np.min(np.where(power<=0)[0])])          
+#            mean += np.mean(p, axis=0)
         
         if(nrealisations>1):
             cov = [np.cov(x) for x in np.array(p).transpose((1,2,0))]
@@ -332,7 +354,8 @@ class LikelihoodInstrumental2D(LikelihoodBase):
             
         return mean, cov
     
-    def logdet_block_matrix(self, S, blocklen=None):
+    @staticmethod
+    def logdet_block_matrix(S, blocklen=None):
         if type(S) == list:
             return np.sum([slogdet(s)[1] for s in S])
         elif issparse(S):
@@ -344,8 +367,8 @@ class LikelihoodInstrumental2D(LikelihoodBase):
                                    i * blocklen:(i + 1) * blocklen])[1] for i in
                            range(int(S.shape[0] / blocklen))])
     
-    
-    def solve_block_matrix(self, S, x, blocklen=None):
+    @staticmethod
+    def solve_block_matrix( S, x, blocklen=None):
         if type(S)==list:
             bits = [solve(s, x[i*len(s):(i+1)*len(s)]) for i, s in enumerate(S)]
         elif issparse(S):
@@ -393,9 +416,9 @@ class LikelihoodInstrumental2D(LikelihoodBase):
         norm_coeff = nx * np.log(2 * np.pi) + self.logdet_block_matrix(cov, blocklen) #chol_deco.logdet() #
         
         err = ((self.p_data + self.foreground_data) - (model + self.foreground_mean)).T.flatten()
-        print(norm_coeff, err)
+        
         numerator = self.solve_block_matrix(cov, err, blocklen).T.dot(err)#chol_deco.solve_A(err).T.dot(err) #
-        print(numerator)
+        
         return -0.5*(norm_coeff+numerator)
     
     def compute_power(self, visibilities, baselines, frequencies):
@@ -430,8 +453,9 @@ class LikelihoodInstrumental2D(LikelihoodBase):
                                             bins=self.n_psbins)
 
         return power2d, coords
-
-    def get_2d_power(self, fourier_vis, coords, weights, nu_min, nu_max, bins=100, max_bin = 281):
+    
+    @staticmethod
+    def get_2d_power(fourier_vis, coords, weights, nu_min, nu_max, bins=100, max_bin = 281):
         """
         Determine the 2D Power Spectrum of the observation.
 
@@ -662,8 +686,8 @@ class LikelihoodInstrumental2D(LikelihoodBase):
         baselines = ctx.get("baselines")
         frequencies = ctx.get("frequencies")
         
-        p_signal = self.compute_power(visibilities, baselines, frequencies)[0]
-
+        p_signal, coords = self.compute_power(visibilities, baselines, frequencies)
+        
         return dict(p_signal = p_signal, baselines = baselines, frequencies = frequencies)
     
     @property
