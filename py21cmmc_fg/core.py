@@ -120,7 +120,7 @@ class CorePointSourceForegrounds(ForegroundsBase):
     A 21CMMC Core MCMC module which adds point-source foregrounds to the base signal.
     """
 
-    def __init__(self, *args, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8, f0=150e6, **kwargs):
+    def __init__(self, *args, S_min=1e-3, S_max=1e-3, alpha=4100., beta=1.59, gamma=0.8, f0=150e6, **kwargs):
         super().__init__(*args, S_min=S_min, S_max=S_max, alpha=alpha, beta=beta, gamma=gamma, f0=f0, **kwargs)
 
     @staticmethod
@@ -167,9 +167,12 @@ class CorePointSourceForegrounds(ForegroundsBase):
         # Generate the number of sources following poisson distribution
         # Make sure it's not 0!
         N_sources = 0
+        ii = 0
         while (N_sources==0):
             N_sources = np.random.poisson(n_bar)
-        
+            ii +=1
+            if(ii>10):
+                break
         # Generate the point sources in unit of Jy and position using uniform distribution
         S_0 = ((S_max ** (1 - beta) - S_min ** (1 - beta)) * np.random.uniform(size=N_sources) + S_min ** (
                 1 - beta)) ** (1 / (1 - beta))
@@ -187,7 +190,6 @@ class CorePointSourceForegrounds(ForegroundsBase):
         sky /= CoreInstrumental.conversion_factor_K_to_Jy(frequencies)
 
         return sky
-
 
 class CoreDiffuseForegrounds(ForegroundsBase):
     """
@@ -257,7 +259,7 @@ class CoreInstrumental(CoreBase):
     being used (and loaded before this).
     """
     def __init__(self, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=300.0,
-                 integration_time=1200, Tsys = 0, sky_size = 1.0, sky_cells = 600, store=None):
+                 integration_time=1200, Tsys = 20, sky_size = 1.0, sky_cells = 600, store=None):
         """
         Core MCMC class which converts 21cmFAST *lightcone* output into a mock observation, sampled at specific baselines.
 
@@ -359,7 +361,7 @@ class CoreInstrumental(CoreBase):
             EoR_size = ForegroundsBase.get_sky_size(boxsize, self.redshifts, cosmo)
             
             # TODO: stitch stuff together and then coarsen the grid
-            new_sky = self.stitch_boxes(lightcone.brightness_temp, EoR_size)
+            new_sky = self.stitch_boxes(lightcone.brightness_temp, EoR_size, self.sky_size)
             new_sky = self.coarsen_sky(new_sky, n2=self.sky_cells)[0]
         else:
             new_sky = lightcone.brightness_temp            
@@ -644,9 +646,10 @@ class CoreInstrumental(CoreBase):
         
         return visibilities
     
-    def stitch_boxes(self, lightcone, EoR_size):
+    @staticmethod
+    def stitch_boxes(lightcone, EoR_size, sky_size):
         
-        N_box = int((self.sky_size/EoR_size))
+        N_box = int((sky_size/EoR_size))
         
         new_sky = []
         
@@ -668,7 +671,8 @@ class CoreInstrumental(CoreBase):
         
         return new_sky
     
-    def coarsen_sky(self, a, centres=None, n2=125):
+    @staticmethod
+    def coarsen_sky(a, centres=None, n2=125):
         """
         Coarsen the square matrix a down to n2xn2.
         """
