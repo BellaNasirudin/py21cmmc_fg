@@ -27,7 +27,6 @@ def solve_block_matrix(S, x):
                 sol = solve(s, xx)
                 bits += [sol]
                 inds += [i]
-                print("SOL %s:"%i, sol)
             except LinAlgError:
                 # Sometimes, the covariance might be all zeros, or singular.
                 # Then we just ignore those values of u (or kperp) and keep going.
@@ -50,11 +49,12 @@ def lognormpdf(x, mu, cov):
 
     err = x - mu
 
+    print("SHAPE: ", err.shape, cov[0].shape)
     sol, inds = solve_block_matrix(cov, err)
 
     # The "inds" here means we only use the u co-ordinates that had a solution to the covariance.
     numerator = 0
     for i, (s, e) in enumerate(zip(sol, err[inds])):
         numerator += s.dot(e)
-        print("NUMERATOR: %s"%i, numerator)
+
     return -0.5 * (norm_coeff + numerator)

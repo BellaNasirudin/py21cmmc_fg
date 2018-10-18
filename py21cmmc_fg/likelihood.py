@@ -59,8 +59,7 @@ class Likelihood2D(LikelihoodBase):
         # Note: this will *not* work if foreground parameters are changing!
 #        self.foreground_mean, self.foreground_variance = self.numerical_mean_and_variance(self.nrealisations)
         self.foreground_mean, self.foreground_covariance = self.numerical_covariance(self.nrealisations)
-        print(np.min(self.kperp_data), np.max(self.kperp_data), np.min(self.kpar_data), np.max(self.kpar_data))
-        
+
         # NOTE: we should actually use analytic_variance *and* analytic mean model, rather than numerical!!!
 
 
@@ -321,7 +320,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         self.p_data = self.data["p_signal"]
 
 
-        print("SIGNAL SHAPE: ", self.p_data.shape)
         # GET COVARIANCE!
         if self.foreground_cores: # TODO: "and no parameter_names are in foreground core parameters..."
             self.foreground_mean, self.foreground_covariance = self.numerical_covariance(self.nrealisations)
@@ -339,9 +337,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             total_cov = self.get_signal_covariance(model['p_signal'])
 
-        print("MODEL SIGNAL: ", model['p_signal'])
-
-        print("COV SHAPE: ", len(total_cov), total_cov[0].shape)
         lnl = lognormpdf(self.data['p_signal'], model['p_signal'], total_cov)
         print("LIKELIHOOD IS ", lnl)
         return lnl
@@ -615,40 +610,40 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         return cosmo.comoving_distance(z) / (1 * un.sr)
 
-    @staticmethod
-    def volume(z_mid, nu_min, nu_max, A_eff=20):
-        """
-        Calculate the effective volume of an observation in Mpc**3, when co-ordinates are provided in Hz.
-
-        Parameters
-        ----------
-        z_mid : float
-            Mid-point redshift of the observation.
-
-        nu_min, nu_max : float
-            Min/Max frequency of observation, in Hz.
-
-        A_eff : float
-            Effective area of the telescope.
-
-        Returns
-        -------
-        vol : float
-            The volume.
-
-        Notes
-        -----
-        How is this actually calculated? What assumptions are made?
-        """
-
-        diff_nu = nu_max - nu_min
-
-        G_z = (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(z_mid) / (const.c * (1 + z_mid) ** 2)
-
-        Vol = const.c ** 2 / (sigma * un.m ** 2 * nu_max * (1 / un.s) ** 2) * diff_nu * (
-                    1 / un.s) * cosmo.comoving_distance([z_mid]) ** 2 / (G_z)
-
-        return Vol.value
+    # @staticmethod
+    # def volume(z_mid, nu_min, nu_max, A_eff=20):
+    #     """
+    #     Calculate the effective volume of an observation in Mpc**3, when co-ordinates are provided in Hz.
+    #
+    #     Parameters
+    #     ----------
+    #     z_mid : float
+    #         Mid-point redshift of the observation.
+    #
+    #     nu_min, nu_max : float
+    #         Min/Max frequency of observation, in Hz.
+    #
+    #     A_eff : float
+    #         Effective area of the telescope.
+    #
+    #     Returns
+    #     -------
+    #     vol : float
+    #         The volume.
+    #
+    #     Notes
+    #     -----
+    #     How is this actually calculated? What assumptions are made?
+    #     """
+    #
+    #     diff_nu = nu_max - nu_min
+    #
+    #     G_z = (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(z_mid) / (const.c * (1 + z_mid) ** 2)
+    #
+    #     Vol = const.c ** 2 / (sigma * un.m ** 2 * nu_max * (1 / un.s) ** 2) * diff_nu * (
+    #                 1 / un.s) * cosmo.comoving_distance([z_mid]) ** 2 / (G_z)
+    #
+    #     return Vol.value
     
     @property
     def foreground_cores(self):
