@@ -31,7 +31,7 @@ taper = np.blackman
 params=dict(  # Parameter dict as described above.
             HII_EFF_FACTOR=[30.0, 10.0, 50.0, 3.0],
             ION_Tvir_MIN=[4.7, 2, 8, 0.1],
-        ),
+        )
 # ============== END OF USER-SETTABLE STUFF
 
 z_min = 1420./freq_max - 1
