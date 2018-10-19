@@ -15,7 +15,8 @@ core_eor = CoreLightConeModule( # All core modules are prefixed by Core* and end
     max_redshift = 8.5,          # Approximate maximum redshift of the lightcone (will be exceeded).
     user_params = dict(       
         HII_DIM = 150,         
-        BOX_LEN = 600.0
+        BOX_LEN = 600.0,
+        SEED_NUM = 1
     ),
     z_step_factor=1.04,          # How large the steps between evaluated redshifts are (log).
     regenerate=False          
@@ -57,9 +58,9 @@ chain = run_mcmc(
         HII_EFF_FACTOR = [30.0, 10.0, 50.0, 3.0],
         ION_Tvir_MIN = [4.7, 2, 8, 0.1],
     ), 
-    walkersRatio=16,         # The number of walkers will be walkersRatio*nparams
+    walkersRatio=12,         # The number of walkers will be walkersRatio*nparams
     burninIterations=0,      # Number of iterations to save as burnin. Recommended to leave as zero.
-    sampleIterations=25,    # Number of iterations to sample, per walker.
+    sampleIterations=50,    # Number of iterations to sample, per walker.
     threadCount=6,           # Number of processes to use in MCMC (best as a factor of walkersRatio)
     continue_sampling=False  # Whether to contine sampling from previous run *up to* sampleIterations.
 )
