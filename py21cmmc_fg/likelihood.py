@@ -320,8 +320,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         self.p_data = self.data["p_signal"]
 
-
-        print("SIGNAL SHAPE: ", self.p_data.shape)
         # GET COVARIANCE!
         if self.foreground_cores: # TODO: "and no parameter_names are in foreground core parameters..."
             self.foreground_mean, self.foreground_covariance = self.numerical_covariance(self.nrealisations)
@@ -339,9 +337,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             total_cov = self.get_signal_covariance(model['p_signal'])
 
-        print("MODEL SIGNAL: ", model['p_signal'])
-
-        print("COV SHAPE: ", len(total_cov), total_cov[0].shape)
         lnl = lognormpdf(self.data['p_signal'], model['p_signal'], total_cov)
         print("LIKELIHOOD IS ", lnl)
         return lnl
