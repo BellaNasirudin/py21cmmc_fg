@@ -18,8 +18,8 @@ z_step_factor = 1.04
 nfreq = 64
 max_bl_length = 300.
 sky_size = 3.0 # in sigma
-max_tile_n = 50,
-n_cells = 300,
+max_tile_n = 50
+n_cells = 300
 
 # Likelihood options
 n_ubins = 21
