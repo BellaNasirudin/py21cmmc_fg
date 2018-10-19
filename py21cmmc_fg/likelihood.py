@@ -319,7 +319,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         self.p_data = self.data["p_signal"]
 
-
         # GET COVARIANCE!
         if self.foreground_cores: # TODO: "and no parameter_names are in foreground core parameters..."
             self.foreground_mean, self.foreground_covariance = self.numerical_covariance(self.nrealisations)

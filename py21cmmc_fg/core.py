@@ -133,7 +133,7 @@ class CorePointSourceForegrounds(CoreForegroundsSimulated):
     A 21CMMC Core MCMC module which adds point-source foregrounds to the base signal.
     """
 
-    def __init__(self, *args, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8, f0=150e6, **kwargs):
+    def __init__(self, *args, S_min=1e-1, S_max=1e-1, alpha=4100., beta=1.59, gamma=0.8, f0=150e6, **kwargs):
         super().__init__(*args,
                          model_params=dict(S_min=S_min, S_max=S_max, alpha=alpha, beta=beta, gamma=gamma, f0=f0),
                          **kwargs)
@@ -275,7 +275,7 @@ class CoreInstrumental(CoreBase):
     """
 
     def __init__(self, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=300.0,
-                 integration_time=1200, Tsys = 0, sky_size = 1, sky_size_coord="rad", max_tile_n=50, n_cells=None,
+                 integration_time=120, Tsys = 240, sky_size = 1, sky_size_coord="rad", max_tile_n=50, n_cells=None,
                  *args, **kwargs):
         """
         Parameters
