@@ -72,6 +72,6 @@ def run_mcmc(*args, model_name, params=params, **kwargs):
         *args,
         datadir='data',  # Directory for all outputs
         model_name=model_name,  # Filename of main chain output
-        params=params
+        params=params,
         **kwargs
     )
