@@ -8,6 +8,7 @@ freq_min = 150.0
 freq_max = 160.0
 
 HII_DIM = 500
+DIM = 3*HII_DIM
 BOX_LEN = 2 * HII_DIM
 
 z_step_factor = 1.04
@@ -40,7 +41,8 @@ core_eor = CoreLightConeModule(
     max_redshift = z_max,          # Approximate maximum redshift of the lightcone (will be exceeded).
     user_params = dict(
         HII_DIM = HII_DIM,
-        BOX_LEN = BOX_LEN
+        BOX_LEN = BOX_LEN,
+        DIM=DIM
     ),
     z_step_factor=z_step_factor,          # How large the steps between evaluated redshifts are (log).
     regenerate=False
