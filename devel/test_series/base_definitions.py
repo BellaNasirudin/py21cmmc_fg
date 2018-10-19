@@ -1,6 +1,7 @@
 from py21cmmc.mcmc import CoreLightConeModule, run_mcmc as _run_mcmc
 from py21cmmc_fg.core import CoreInstrumental #, ForegroundsBase
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
+import numpy as np
 
 # ============== SET THESE VARIABLES.
 # These should be kept the same between all tests.
