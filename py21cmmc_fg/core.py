@@ -379,7 +379,7 @@ class CoreInstrumental(CoreBase):
         if np.sqrt(2) * size/2 > 1:
             raise ValueError("sky size is unphysical (%s > 1)"%size)
 
-        if size/self.eor_size_lm.min() > self._max_tile_n:
+        if size/self.eor_size_lm > self._max_tile_n:
             raise ValueError("sky size is larger than max requested (must be tiled %s times, but max is %s)"%(size/self.eor_size_lm, self._max_tile_n))
 
         return size
@@ -391,6 +391,7 @@ class CoreInstrumental(CoreBase):
         """
         for m in self.LikelihoodComputationChain.getCoreModules():
             if isinstance(m, CoreLightConeModule):
+                print(ForegroundsBase.sky_size)
                 return ForegroundsBase.sky_size#get_sky_size(m.user_params.BOX_LEN, self.redshifts,m.cosmo_params.cosmo)
 
         # If no lightcone module is found, raise an exception.
