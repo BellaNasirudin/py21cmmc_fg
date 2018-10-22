@@ -391,8 +391,7 @@ class CoreInstrumental(CoreBase):
         """
         for m in self.LikelihoodComputationChain.getCoreModules():
             if isinstance(m, CoreLightConeModule):
-                return ForegroundsBase.get_sky_size(m.user_params.BOX_LEN, self.redshifts,
-                                                    m.cosmo_params.cosmo)
+                return ForegroundsBase.sky_size#get_sky_size(m.user_params.BOX_LEN, self.redshifts,m.cosmo_params.cosmo)
 
         # If no lightcone module is found, raise an exception.
         raise AttributeError("No eor_size is applicable, as no LightCone module is loaded")
