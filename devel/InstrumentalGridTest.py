@@ -22,7 +22,7 @@ core_eor = CoreLightConeModule( # All core modules are prefixed by Core* and end
     regenerate=False          
 )
     
-fg_core = CorePointSourceForegrounds(redshifts = 1420. / frequencies - 1)
+core_fg = CorePointSourceForegrounds(redshifts = 1420. / frequencies - 1)
 
 core_instr = CoreInstrumental(
     antenna_posfile = 'grid_centres', # use a special grid of *baselines*.
@@ -51,7 +51,7 @@ likelihood = LikelihoodInstrumental2D(
 )
 
 chain = run_mcmc(
-    [core_eor, core_instr], likelihood,
+    [core_eor, core_instr, core_fg], likelihood,
     datadir='data',          # Directory for all outputs
     model_name=model_name,   # Filename of main chain output
     params=dict(             # Parameter dict as described above.

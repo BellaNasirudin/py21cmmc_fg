@@ -225,7 +225,7 @@ class Likelihood2D(LikelihoodBase):
 class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreLightConeModule, CoreInstrumental]
 
-    def __init__(self, n_uv=None, n_ubins=30, umax = 290, frequency_taper=np.blackman, nrealisations = 200,
+    def __init__(self, n_uv=None, n_ubins=30, umax = 290, frequency_taper=np.blackman, nrealisations = 100,
                  model_uncertainty = 0.15, eta_min = 0, **kwargs):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
