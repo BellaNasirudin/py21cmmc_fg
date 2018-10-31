@@ -1,5 +1,5 @@
 from py21cmmc.mcmc import CoreLightConeModule, run_mcmc as _run_mcmc
-from py21cmmc_fg.core import CoreInstrumental #, ForegroundsBase
+from py21cmmc_fg.core import CoreInstrumental, CorePointSourceForegrounds #, ForegroundsBase
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
 import numpy as np
 
@@ -8,14 +8,14 @@ import numpy as np
 freq_min = 150.0
 freq_max = 160.0
 
-HII_DIM = 500
+HII_DIM = 80
 DIM = 3*HII_DIM
-BOX_LEN = 2 * HII_DIM
+BOX_LEN = 3 * HII_DIM
 
 z_step_factor = 1.04
 
 # Instrument Options
-nfreq = 64
+nfreq = 32
 max_bl_length = 300.
 sky_size = 3.0 # in sigma
 max_tile_n = 50
@@ -65,7 +65,6 @@ class CustomLikelihood(LikelihoodInstrumental2D):
         super().__init__(n_uv = None, n_ubins=n_ubins, umax=umax, frequency_taper=frequency_taper,
                          simulate=True,
                          **kwargs)
-
 
 def run_mcmc(*args, model_name, params=params, **kwargs):
     return _run_mcmc(

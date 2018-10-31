@@ -15,6 +15,9 @@ from setuptools import find_packages
 from setuptools import setup
 
 
+from numpy.distutils.core import setup, Extension
+
+
 def read(*names, **kwargs):
     return io.open(
         join(dirname(__file__), *names),
@@ -73,10 +76,18 @@ setup(
         #   'rst': ['docutils>=0.11'],
         #   ':python_version=="2.6"': ['argparse'],
     },
-    package_data={"py21cmmc_fg":['data/*']}
+    package_data={"py21cmmc_fg":['data/*']},
     # entry_points={
     #     'console_scripts': [
     #         'py21cmmc = py21cmmc.cli:main',
     #     ]
     # },
+    ext_modules=[
+        Extension(
+            'py21cmmc_fg.c_routines',
+            ['py21cmmc_fg/routines.c'],
+            extra_compile_args = ['-Ofast']
+        ),
+
+    ]
 )

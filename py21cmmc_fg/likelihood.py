@@ -235,8 +235,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         this likelihood module to work. Without the foregrounds, the 2D modes are naturally weighted by the sample
         variance of the EoR signal itself.
 
-        The likelihood *does* require the :class:`~core.CoreInstrumental` Core module however, as this class first
-        re-grids the input visibilities from baselines onto a grid.
+        The likelihood requires the :class:`~core.CoreInstrumental` Core module.
 
         Parameters
         ----------
@@ -282,19 +281,36 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         self.model_uncertainty = model_uncertainty
         self.eta_min = eta_min
 
+        # Set the mean and covariance of foregrounds to zero by default
+        self.foreground_mean, self.foreground_covariance = 0, 0
+
+        # TODO: this is really bad. Basically we set this variable here to show that setup() hasn't been done.
+        # Once setup is done, we make it True so that on each actual iteration, we run lots of realisations.
+        self._do_nrealisations = False
+
     def simulate(self, ctx):
         """
-        Simulate datasets to which this very class instance should be compared, returning their mean and std.
-        Writes the information to the datafile of this instance.
+        Simulate datasets to which this very class instance should be compared.
         """
-        visibilities = ctx.get("visibilities")
         baselines = ctx.get("baselines")
         frequencies = ctx.get("frequencies")
-
+        visibilities = ctx.get("visibilities")
         p_signal, u_eta = self.compute_power(visibilities, baselines, frequencies)
 
-        # at least for now, simulate() must return a *list* of dicts
-        return [dict(p_signal=p_signal, baselines=baselines, frequencies=frequencies, u_eta=u_eta)]
+        # If we are in the main MCMC body, and we need to get the foreground covariance
+        if self._do_nrealisations and self.foreground_cores and not self.foreground_covariance:
+            mean, cov = self.numerical_covariance(nrealisations=self.nrealisations)
+
+            p_signal += mean
+
+            # at least for now, simulate() must return a *list* of dicts
+            return [dict(p_signal=p_signal, baselines=baselines, frequencies=frequencies, u_eta=u_eta,
+                         fg_mean=mean, fg_cov=cov)]
+        else:
+
+            p_signal, u_eta = self.compute_power(visibilities, baselines, frequencies)
+
+            return [dict(p_signal=p_signal, baselines=baselines, frequencies=frequencies, u_eta=u_eta)]
 
     def setup(self):
         """
@@ -319,25 +335,37 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         self.p_data = self.data["p_signal"]
 
+        print("Got data")
         # GET COVARIANCE!
-        if self.foreground_cores: # TODO: "and no parameter_names are in foreground core parameters..."
-            self.foreground_mean, self.foreground_covariance = self.numerical_covariance(self.nrealisations)
-            #self.foreground_data = self.numerical_covariance(1)[0]
-        else:
-            self.foreground_mean, self.foreground_covariance = 0, 0
+        # Only save the mean/cov if we have foregrounds, and they don't update every iteration (otherwise, get them
+        # every iter).
+        if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
+            self.foreground_mean, self.foreground_covariance = self.numerical_covariance(nrealisations=self.nrealisations)
+
+        # TODO: note this is the second part of the bad hack mentioned in the __init__
+        self._do_nrealisations = True
 
     def computeLikelihood(self, model):
         "Compute the likelihood"
         # remember that model is *exactly* the result of simulate(), which is a  *list* of dicts, so unpack
         model = model[0]
 
-        if self.foreground_covariance:
-            total_cov = [x+y for x,y in zip(self.foreground_covariance, self.get_signal_covariance(model['p_signal']))]
-        else:
-            total_cov = self.get_signal_covariance(model['p_signal'])
+        sig_cov = self.get_signal_covariance(model['p_signal'])
+        total_model = model['p_signal']
 
-        lnl = lognormpdf(self.data['p_signal'], model['p_signal'], total_cov)
-        print("LIKELIHOOD IS ", lnl)
+        if self.foreground_covariance:
+            total_cov = [x+y for x,y in zip(self.foreground_covariance, sig_cov)]
+            total_model += self.foreground_mean
+        elif "fg_cov" in model:
+            # Here we have foreground cores, but they update every iteration.
+            total_cov = [x + y for x, y in
+                         zip(model['fg_cov'], sig_cov)]
+            total_model += model['fg_mean']
+        else:
+            total_cov = sig_cov
+
+        lnl = lognormpdf(self.data['p_signal'], total_model, total_cov)
+
         return lnl
 
     @property
@@ -353,6 +381,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         for m in self.LikelihoodComputationChain.getCoreModules():
             if isinstance(m, CoreInstrumental):
                 return m
+
+    @property
+    def foreground_cores(self):
+        try:
+            return [m for m in self.LikelihoodComputationChain.getCoreModules() if isinstance(m, ForegroundsBase)]
+        except AttributeError:
+            raise AttributeError("foreground_cores is not available unless emedded in a LikelihoodComputationChain, after setup")
 
     def get_signal_covariance(self, signal_power):
         """
@@ -374,12 +409,15 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return cov
 
-    def numerical_covariance(self, nrealisations=200):
+    def numerical_covariance(self, params={}, nrealisations=200):
         """
         Calculate the covariance of the foregrounds.
     
         Parameters
         ----------
+        params: dict
+            The parameters of this iteration. If empty, default parameters are used.
+
         nrealisations: int, optional
             Number of realisations to find the covariance.
         
@@ -394,17 +432,28 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         p = []
         mean = 0
-        for core in self.foreground_cores:
-            for ii in range(nrealisations):
-                instr_fg = self.LikelihoodComputationChain.getCoreModules()[1].add_instrument(core.mock_lightcone(self.frequencies).brightness_temp , self.frequencies)
-                power, ks = self.compute_power(instr_fg, self.baselines, self.frequencies)
+
+        for ii in range(nrealisations):
+            # Create an empty context with the given parameters.
+            ctx = self.LikelihoodComputationChain.createChainContext(params)
+
+            print("FOreground cores", self.foreground_cores)
+            # For each realisation, run every foreground core (not the signal!)
+            for core in self.foreground_cores:
+                core.simulate_data(ctx)
+
+            print(ctx.get("lightcone"))
+            # And turn them into visibilities
+            self._instr_core.simulate_data(ctx)
+
+            power, ks = self.compute_power(ctx.get("visibilities"), self.baselines, self.frequencies)
                 
-                p.append(power)#[:np.min(np.where(power<=0)[0])])
+            p.append(power)
             
-            mean += np.mean(p, axis=0)
+        mean += np.mean(p, axis=0)
         
         if nrealisations > 1:
-            cov = [np.cov(x) for x in np.array(p).transpose((1,2,0))]
+            cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
         else:
             cov = 0
             
@@ -609,44 +658,3 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         return cosmo.comoving_distance(z) / (1 * un.sr)
 
-    # @staticmethod
-    # def volume(z_mid, nu_min, nu_max, A_eff=20):
-    #     """
-    #     Calculate the effective volume of an observation in Mpc**3, when co-ordinates are provided in Hz.
-    #
-    #     Parameters
-    #     ----------
-    #     z_mid : float
-    #         Mid-point redshift of the observation.
-    #
-    #     nu_min, nu_max : float
-    #         Min/Max frequency of observation, in Hz.
-    #
-    #     A_eff : float
-    #         Effective area of the telescope.
-    #
-    #     Returns
-    #     -------
-    #     vol : float
-    #         The volume.
-    #
-    #     Notes
-    #     -----
-    #     How is this actually calculated? What assumptions are made?
-    #     """
-    #
-    #     diff_nu = nu_max - nu_min
-    #
-    #     G_z = (cosmo.H0).to(un.m / (un.Mpc * un.s)) * 1420e6 * un.Hz * cosmo.efunc(z_mid) / (const.c * (1 + z_mid) ** 2)
-    #
-    #     Vol = const.c ** 2 / (sigma * un.m ** 2 * nu_max * (1 / un.s) ** 2) * diff_nu * (
-    #                 1 / un.s) * cosmo.comoving_distance([z_mid]) ** 2 / (G_z)
-    #
-    #     return Vol.value
-    
-    @property
-    def foreground_cores(self):
-        try:
-            return [m for m in self.LikelihoodComputationChain.getCoreModules() if isinstance(m, ForegroundsBase)]
-        except AttributeError:
-            raise AttributeError("foreground_cores is not available unless emedded in a LikelihoodComputationChain, after setup")
