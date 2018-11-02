@@ -16,3 +16,5 @@ py21cmmc_fg\.egg-info/
 
 build/*
 *.so
+
+devel/test_series/\.ipynb_checkpoints/

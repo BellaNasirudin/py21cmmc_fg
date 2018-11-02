@@ -10,17 +10,18 @@ Here are the tests:
 5. MWA baselines, thermal noise, point-source foregrounds
 
 """
-from .base_definitions import CustomCoreInstrument, CustomLikelihood, core_eor, run_mcmc
+from base_definitions import CustomCoreInstrument, CustomLikelihood, core_eor, run_mcmc
 
 model_name = "InstrumentalGridTestNoise"
 
 core_instr = CustomCoreInstrument(
     antenna_posfile = 'grid_centres', # use a special grid of *baselines*.
-    Tsys=200,
+    Tsys=240,
 )
 
 likelihood = CustomLikelihood(
-    datafile=[f'data/{model_name}.npz']
+    datafile=[f'data/{model_name}.npz'],
+    noisefile=[f'data/{model_name}.noise.npz'],
 )
 
 

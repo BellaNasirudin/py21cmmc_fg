@@ -11,7 +11,7 @@ from scipy.integrate import quad
 import numpy as np
 from astropy import constants as const
 from astropy import units as un
-from scipy.interpolate import RegularGridInterpolator, RectBivariateSpline
+from scipy.interpolate import RegularGridInterpolator
 from powerbox.dft import fft
 from powerbox import LogNormalPowerBox
 from os import path
@@ -21,10 +21,14 @@ from astropy.cosmology import Planck15
 from py21cmmc import LightCone, UserParams, CosmoParams
 from py21cmmc.mcmc.core import CoreBase, CoreLightConeModule
 
+import logging
+logger = logging.getLogger("21CMMC")
+
 import warnings
 
 import time
 from . import c_wrapper as cw
+from cached_property import cached_property
 
 class ForegroundsBase(CoreBase):
     """
@@ -223,7 +227,7 @@ class CorePointSourceForegrounds(ForegroundsBase):
         Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
         model.
         """
-        print("Populating point sources... ")
+        logger.info("Populating point sources... ")
         t1 = time.time()
         # Find the mean number of sources
         n_bar = quad(lambda x: alpha * x ** (-beta), S_min, S_max)[0] * self.sky_size ** 2  # Need to multiply by sky size in steradian!
@@ -254,7 +258,7 @@ class CorePointSourceForegrounds(ForegroundsBase):
 
         # Change the unit from Jy/sr to mK
         sky /= CoreInstrumental.conversion_factor_K_to_Jy(self.frequencies)
-        print("... took %s sec." % (time.time() - t1))
+        logger.info("\t... took %s sec." % (time.time() - t1))
         return sky
 
 
@@ -299,6 +303,8 @@ class CoreDiffuseForegrounds(ForegroundsBase):
 
         .. math:: \left(\frac{2k_B}{\lambda^2}\right)^2 \Omega (eta \bar{T}_B) \left(\frac{u}{u_0}\right)^{\rho} \left(\frac{\nu}{100 {\rm MHz}}\right)^{\kappa}
         """
+        logger.info("Populating diffuse foregrounds...")
+        t1 = time.time()
 
         # Calculate mean flux density per frequency. Remember to take the square root because the Power is squared.
         Tbar = np.sqrt((frequencies / 1e8) ** kappa * mean_temp ** 2)
@@ -317,6 +323,7 @@ class CoreDiffuseForegrounds(ForegroundsBase):
             for i in range(len(frequencies)):
                 Tbins[:, :, i] = Tbar[i]
 
+        logger.info(f"\t... took {time.time() - t1} sec.")
         return Tbins
 
 
@@ -330,6 +337,7 @@ class CoreInstrumental(CoreBase):
 
     def __init__(self, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=300.0,
                  integration_time=120, Tsys=240, sky_size=1, sky_size_coord="rad", max_tile_n=50, n_cells=None,
+                 effective_collecting_area=16.0,
                  *args, **kwargs):
         """
         Parameters
@@ -368,6 +376,9 @@ class CoreInstrumental(CoreBase):
             applicable. This is useful for reducing memory usage. Default is the same number of cells as the underlying
             simulation. If set to zero, no coarsening will be performed.
 
+        effective_collecting_area : float, optional
+            The effective collecting area of a tile (equal to the geometric area times the efficiency).
+
         Notes
         -----
         The choice of sky size can easily result in unphysical results (i.e. more than 180 degrees, or lm > 1). An
@@ -383,6 +394,11 @@ class CoreInstrumental(CoreBase):
         self.max_bl_length = max_bl_length
         self.integration_time = integration_time
         self.Tsys = Tsys
+
+        self.effective_collecting_area = effective_collecting_area * un.m**2
+
+        if self.effective_collecting_area > self.tile_diameter**2:
+            warnings.warn("The effective collecting area (%s) is greater than the tile diameter squared!")
 
         # Sky size parameters.
         self._sky_size = sky_size
@@ -412,14 +428,11 @@ class CoreInstrumental(CoreBase):
                 self.baselines[:, 0].value ** 2 + self.baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
 
     def setup(self):
-        # # Set the foreground sky size to this sky size, if necessary.
-        # # TODO: this will not work yet, as the sky_size is a property of the foregrounds, not a simple variable.
-        # for m in self.LikelihoodComputationChain.getCoreModules():
-        #     if isinstance(m, ForegroundsBase):
-        #         m.sky_size = self.sky_size
 
         if self.n_cells is None:
             self.n_cells = self._base_module.user_params.HII_DIM
+        elif self.n_cells == 0:
+            self.n_cells = self._n_stitched
 
     @property
     def lightcone_slice_redshifts(self):
@@ -460,6 +473,13 @@ class CoreInstrumental(CoreBase):
         raise AttributeError("No eor_size is applicable, as no LightCone module is loaded")
 
     @property
+    def n_stitch(self):
+        """The number of times the simulation needs to be stitched to get to *at least* sky_size"""
+        return int(np.ceil(self.sky_size / ForegroundsBase.get_sky_size(self._base_module.user_params.BOX_LEN,
+                                                                        self.lightcone_slice_redshifts,
+                                                                        self._base_module.cosmo_params.cosmo)))
+
+    @property
     def _base_module(self):
         "Basic foreground/lightcone module which this requires"
         if not hasattr(self, "LikelihoodComputationChain"):
@@ -476,6 +496,15 @@ class CoreInstrumental(CoreBase):
     def sim_frequencies(self):
         "The frequencies associated with slice redshifts, in Hz"
         return 1420e6 / (self.lightcone_slice_redshifts + 1)
+
+    @property
+    def sim_sky_size(self):
+        """Size of the simulated sky (before stitching/coarsening) in radians"""
+        return ForegroundsBase.get_sky_size(
+            self._base_module.user_params.BOX_LEN,
+            self.lightcone_slice_redshifts,
+            self._base_module.cosmo_params.cosmo
+        )
 
     def simulate_data(self, ctx):
         """
@@ -497,28 +526,23 @@ class CoreInstrumental(CoreBase):
         for lc in lightcone + foregrounds:
             total_brightness += lc.brightness_temp
 
-        boxsize = self._base_module.user_params.BOX_LEN
-        cosmo = self._base_module.cosmo_params.cosmo
-        EoR_size = ForegroundsBase.get_sky_size(boxsize, self.lightcone_slice_redshifts, cosmo)
+        total_brightness = self.stitch_and_coarsen(total_brightness)
 
-        new_sky = self.stitch_boxes(total_brightness, EoR_size)
-        if self.n_cells > 0:
-            new_sky = self.coarsen_sky(new_sky, n2=self.n_cells)[0]
-
-        vis = self.add_instrument(new_sky)
+        vis = self.add_instrument(total_brightness)
 
         ctx.add("visibilities", vis)
         ctx.add("baselines", self.baselines.value)
         ctx.add("frequencies", self.instrumental_frequencies)
+        ctx.add("new_sky", total_brightness)
 
     def add_instrument(self, lightcone):
         # Find beam attenuation
         # n_cells is the number of cells per side in the sky of the stitched/coarsened array.
         # sky_size is in lm co-ordinates
-        attenuation, beam_area = self.beam(self.sim_frequencies, self.n_cells, self.sky_size)
+        attenuation = self.beam(self.sim_frequencies)
 
         # Change the units of lightcone from mK to Jy
-        beam_sky = lightcone * self.conversion_factor_K_to_Jy(self.sim_frequencies, beam_area) * attenuation
+        beam_sky = lightcone * self.conversion_factor_K_to_Jy(self.sim_frequencies, self.beam_area(self.sim_frequencies)) * attenuation
 
         # Fourier transform image plane to UV plane.
         uvplane, uv = self.image_to_uv(beam_sky, self.sky_size)
@@ -537,22 +561,44 @@ class CoreInstrumental(CoreBase):
 
         visibilities = self.interpolate_frequencies(visibilities, self.sim_frequencies, self.instrumental_frequencies)
 
-        # Just in case we forget, now the frequencies are all in terms of the instrumental frequencies.
-        beam_area = self.beam(self.instrumental_frequencies, self.n_cells, self.sky_size)[1]
-
         # Add thermal noise using the mean beam area
-        visibilities = self.add_thermal_noise(visibilities, self.instrumental_frequencies,
-                                              beam_area, self.integration_time,
-                                              Tsys=self.Tsys)
+        visibilities = self.add_thermal_noise(visibilities)
 
         return visibilities
 
     def sigma(self, frequencies):
-        "The Gaussian beam width at each instrumental frequency"
+        "The Gaussian beam width at each frequency"
         epsilon = 0.42  # scaling from airy disk to Gaussian
         return ((epsilon * const.c) / (frequencies / un.s * self.tile_diameter)).to(un.dimensionless_unscaled)
 
-    def beam(self, frequencies, ncells, sky_size):
+    @cached_property
+    def sky_coords(self):
+        """Grid-coordinates of the (stitched/coarsened) simulation in lm units"""
+        return np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells+1)[:-1]
+
+    @cached_property
+    def cell_size(self):
+        """Size (in lm) of a cell of the stitched/coarsened simulation"""
+        return self.sky_size/self.n_cells
+
+    def beam_area(self, frequencies):
+        """
+        The integrated beam area. Assumes a frequency-dependent Gaussian beam (in lm-space, as this class implements).
+
+        Parameters
+        ----------
+        frequencies : array-like
+            Frequencies at which to compute the area.
+
+        Returns
+        -------
+        beam_area: (nfreq)-array
+            The beam area of the sky, in lm.
+        """
+        sig = self.sigma(frequencies)
+        return np.pi * sig**2
+
+    def beam(self, frequencies):
         """
         Generate a frequency-dependent Gaussian beam attenuation across the sky per frequency.
 
@@ -573,17 +619,14 @@ class CoreInstrumental(CoreBase):
             The beam area of the sky (in sr).
         """
 
-        # Then create a meshgrid for the beam attenuation on sky array
-        sky_coords_lm = np.linspace(-sky_size / 2, sky_size / 2, ncells)
-        L, M = np.meshgrid(sky_coords_lm, sky_coords_lm)
+        # Create a meshgrid for the beam attenuation on sky array
+        L, M = np.meshgrid(self.sky_coords, self.sky_coords)
 
         attenuation = np.exp(
-            np.outer(-(L ** 2 + M ** 2), 1. / self.sigma(frequencies) ** 2).reshape((ncells, ncells, len(frequencies))))
+            np.outer(-(L ** 2 + M ** 2), 1. /(2 * self.sigma(frequencies) ** 2)).reshape((self.n_cells, self.n_cells, len(frequencies))))
 
-        # Really dodgy integration to get the effective beam area
-        beam_area = np.sum(attenuation, axis=(0, 1)) * np.diff(sky_coords_lm)[0] ** 2
+        return attenuation
 
-        return attenuation, beam_area
 
     @staticmethod
     def conversion_factor_K_to_Jy(nu, omega=None):
@@ -633,10 +676,10 @@ class CoreInstrumental(CoreBase):
         uv_scale : list of two arrays.
             The u and v co-ordinates of the uvsky, respectively. Units are inverse of L.
         """
-        print("Converting to UV space...")
+        logger.info("Converting to UV space...")
         t1 = time.time()
         ft, uv_scale = fft(sky, [L, L], axes=(0, 1))
-        print("... took %s sec." % (time.time() - t1))
+        logger.info("... took %s sec." % (time.time() - t1))
         return ft, uv_scale
 
     @staticmethod
@@ -670,7 +713,7 @@ class CoreInstrumental(CoreBase):
 
         frequencies = frequencies / un.s
 
-        print("Sampling the data onto baselines...")
+        logger.info("Sampling the data onto baselines...")
         t1 = time.time()
 
         for i, ff in enumerate(frequencies):
@@ -690,7 +733,7 @@ class CoreInstrumental(CoreBase):
 
             vis[:, i] = FT_real + FT_imag * 1j
 
-        print("... took %s sec." % (time.time() - t1))
+        logger.info("... took %s sec." % (time.time() - t1))
         return vis
 
     @staticmethod
@@ -715,10 +758,8 @@ class CoreInstrumental(CoreBase):
         new_vis : complex (n_baselines, N)-array
             The interpolated visibilities.
         """
-        print("Interpolating frequencies...")
+        logger.info("Interpolating frequencies...")
         t1 = time.time()
-
-        # new_vis = np.zeros((visibilities.shape[0], len(linear_freq)), dtype=np.complex64)
 
         # Make sure the input frequencies are ascending.
         if freq_grid[0] > freq_grid[-1]:
@@ -728,12 +769,7 @@ class CoreInstrumental(CoreBase):
         # USING C Code reduces time by about 200%!!
         out = cw.interpolate_visibility_frequencies(visibilities, freq_grid, linear_freq)
 
-        # for i, vis in enumerate(visibilities):
-        #     rl = RegularGridInterpolator((freq_grid,), np.real(vis))(linear_freq)
-        #     im = RegularGridInterpolator((freq_grid,), np.imag(vis))(linear_freq)
-        #     new_vis[i] = rl + im * 1j
-
-        print("... took %s sec."%(time.time() - t1))
+        logger.info("... took %s sec."%(time.time() - t1))
         return out
 
     @staticmethod
@@ -761,8 +797,18 @@ class CoreInstrumental(CoreBase):
 
         return np.array([Xsep.flatten()[np.logical_not(zeros)], Ysep.flatten()[np.logical_not(zeros)]]).T
 
-    @staticmethod
-    def add_thermal_noise(visibilities, frequencies, beam_area, delta_t=1200, Tsys=0):
+    @property
+    def thermal_variance_baseline(self):
+        """
+        The thermal variance of each baseline (assumed constant across baselines/times/frequencies.
+
+        Equation comes from Trott 2016 (from Morales 2005)
+        """
+        df = self.instrumental_frequencies[1] - self.instrumental_frequencies[0]
+        sigma = 2 * 1e26 * const.k_B.value * self.Tsys / self.effective_collecting_area / np.sqrt(df * self.integration_time)
+        return (sigma**2).value
+
+    def add_thermal_noise(self, visibilities):
         """
         Add thermal noise to each visibility.
 
@@ -786,78 +832,22 @@ class CoreInstrumental(CoreBase):
             The visibilities at each baseline and frequency with the thermal noise from the sky.
 
         """
-        sigma = Tsys * beam_area / (
-                    (const.c / ((frequencies.max() - frequencies.min()) * (1 / un.s))) ** 2).value / np.sqrt(
-            (frequencies.max() - frequencies.min()) * delta_t)
+        logger.info("Adding thermal noise...")
+        # TODO: should there be a root(2) here?
+        rl_im = np.random.normal(0, 1, (2,)+visibilities.shape)
 
-        rl_im = np.random.normal(0, 1, (2, np.shape(visibilities)[0], np.shape(visibilities)[1]))
+        return visibilities + np.sqrt(self.thermal_variance_baseline) * (rl_im[0, :] + rl_im[1, :] * 1j)
 
-        return visibilities + sigma * (rl_im[0, :] + rl_im[1, :] * 1j)
+    @property
+    def _n_stitched(self):
+        """The number of cells in the stitched box (pre-coarsening)"""
+        return int(self.sky_size * self._base_module.user_params.HII_DIM / self.sim_sky_size)
 
-    def stitch_boxes(self, lightcone, EoR_size):
-        # TODO: isn't EoR size in radians (or maybe lm)? Then we can't just add it up like this, we have to do the proper
-        # TODO: angle to Mpc calculation.
-        print("Stitching boxes...")
+    def stitch_and_coarsen(self, lightcone):
+        logger.info("Stitching and coarsening boxes...")
         t1 = time.time()
-        N_box = int(np.ceil(self.sky_size / EoR_size))
 
-        # This in-built function should work out of the box:
-        lightcone = np.tile(lightcone, (N_box, N_box, 1))
+        new = cw.stitch_and_coarsen_sky(lightcone, self.sim_sky_size, self.sky_size, self.n_cells)
 
-        # Now we need to cut it back a bit to match the actual sky size!
-        n = int(self.sky_size / (N_box * EoR_size) * len(lightcone))
-        print("... took %s sec."%(time.time() - t1))
-
-        return lightcone[:n, :n]
-
-        # new_sky = []
-        #
-        # for ff in range(lightcone.shape[-1]):
-        #
-        #     sky_temp = lightcone[:, :, ff].copy()
-        #
-        #     for i in range(1,N_box):
-        #         sky_temp = np.vstack((sky_temp, lightcone[:,:,ff]))
-        #
-        #     sky = sky_temp.copy()
-        #
-        #     for j in range(1, N_box):
-        #         sky = np.hstack((sky, sky_temp))
-        #
-        #     new_sky.append(sky)
-        #
-        # new_sky = np.array(new_sky).transpose(1,2,0)
-        #
-        # return new_sky
-
-    def coarsen_sky(self, a, centres=None, n2=125):
-        """
-        Coarsen the square matrix a down to n2xn2.
-        """
-        # TODO: This is currently the computational bottleneck!
-        print("Coarsening sky...")
-        t1 = time.time()
-        n = np.shape(a)[0]
-        if centres is None:
-            dx = 1.
-            centres = np.arange(n)
-
-        else:
-            dx = centres[1] - centres[0]
-
-        db = float(dx) / (float(n2) / n)
-
-        bvec = np.linspace(centres.min() - dx / 2 + db / 2, centres.max() + dx / 2 - db / 2, n2)
-
-        new = []
-        for ff in range(np.shape(a)[-1]):
-            spl = RectBivariateSpline(centres, centres, a[:, :, ff], kx=1, ky=1)
-
-            b = spl(bvec, bvec, grid=True)
-
-            new.append(b)
-
-        new = np.array(new).transpose(1, 2, 0)
-        print("... took %s sec." % (time.time() - t1))
-
-        return new, bvec
+        logger.info("... took %s sec."%(time.time() - t1))
+        return new

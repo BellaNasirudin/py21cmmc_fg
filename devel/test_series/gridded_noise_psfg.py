@@ -15,9 +15,15 @@ from py21cmmc_fg.core import CorePointSourceForegrounds
 
 model_name = "InstrumentalGridTestNoise"
 
+def store_func(ctx):
+    return ctx.get("new_sky")
+
 core_instr = CustomCoreInstrument(
     antenna_posfile = 'grid_centres', # use a special grid of *baselines*.
     Tsys=200,
+    store = dict(
+        sky_stitched = store_func
+    )
 )
 
 core_fg = CorePointSourceForegrounds(S_min=1e-2)

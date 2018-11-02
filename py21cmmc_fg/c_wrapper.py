@@ -30,3 +30,25 @@ def interpolate_visibility_frequencies(visibilities, freq_in, freq_out):
           np.ascontiguousarray(freq_in), np.ascontiguousarray(freq_out), np.ascontiguousarray(vis_out))
 
     return vis_out.reshape((nf_out, n_bl)).T
+
+
+def stitch_and_coarsen_sky(sky, small_sky_size, big_sky_size, nsky_out):
+    cfunc = ctypes.CDLL(fl).stitch_and_coarsen_sky
+    cfunc.argtypes = [
+        ctypes.c_int, ctypes.c_int, ctypes.c_int,
+        ctypes.c_double, ctypes.c_double,
+        np.ctypeslib.ndpointer(ctypes.c_double, flags="C_CONTIGUOUS"),
+        np.ctypeslib.ndpointer(ctypes.c_double, flags="C_CONTIGUOUS")
+    ]
+
+    n_sim = sky.shape[0]
+    if sky.shape[1] != n_sim:
+        raise ValueError("The sky must have the same number of cells in the first two dimensions!")
+
+    nf = sky.shape[-1]
+
+    out = np.zeros(nsky_out*nsky_out*nf)
+    cfunc(n_sim, nf, nsky_out, small_sky_size, big_sky_size,
+          np.ascontiguousarray(sky.flatten()), np.ascontiguousarray(out))
+
+    return out.reshape((nsky_out, nsky_out, nf))

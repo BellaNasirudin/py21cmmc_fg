@@ -15,9 +15,12 @@ from py21cmmc.mcmc.likelihood import LikelihoodBaseFile, LikelihoodBase
 from py21cmmc.mcmc.core import CoreLightConeModule
 from .core import CoreInstrumental, CoreDiffuseForegrounds, CorePointSourceForegrounds, ForegroundsBase
 from scipy.sparse import block_diag
-from scipy.interpolate import griddata
 
 from .util import lognormpdf
+
+import logging
+logger = logging.getLogger("21CMMC")
+
 
 class Likelihood2D(LikelihoodBase):
     required_cores = [CoreLightConeModule]
@@ -87,7 +90,7 @@ class Likelihood2D(LikelihoodBase):
             lnl = - 0.5 * np.sum((data['p']+self.foreground_mean - self.p_data) ** 2 / (self.foreground_variance + (0.15*data['p'])**2))
         else:
             lnl = self.lognormpdf(data['p'], self.foreground_covariance, len(self.kpar_data) )
-        print("LIKELIHOOD IS ", lnl )
+        logger.debug("LIKELIHOOD IS ", lnl )
 
         return lnl
     
@@ -284,34 +287,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Set the mean and covariance of foregrounds to zero by default
         self.foreground_mean, self.foreground_covariance = 0, 0
 
-        # TODO: this is really bad. Basically we set this variable here to show that setup() hasn't been done.
-        # Once setup is done, we make it True so that on each actual iteration, we run lots of realisations.
-        self._do_nrealisations = False
-
-    def simulate(self, ctx):
-        """
-        Simulate datasets to which this very class instance should be compared.
-        """
-        baselines = ctx.get("baselines")
-        frequencies = ctx.get("frequencies")
-        visibilities = ctx.get("visibilities")
-        p_signal, u_eta = self.compute_power(visibilities, baselines, frequencies)
-
-        # If we are in the main MCMC body, and we need to get the foreground covariance
-        if self._do_nrealisations and self.foreground_cores and not self.foreground_covariance:
-            mean, cov = self.numerical_covariance(nrealisations=self.nrealisations)
-
-            p_signal += mean
-
-            # at least for now, simulate() must return a *list* of dicts
-            return [dict(p_signal=p_signal, baselines=baselines, frequencies=frequencies, u_eta=u_eta,
-                         fg_mean=mean, fg_cov=cov)]
-        else:
-
-            p_signal, u_eta = self.compute_power(visibilities, baselines, frequencies)
-
-            return [dict(p_signal=p_signal, baselines=baselines, frequencies=frequencies, u_eta=u_eta)]
-
     def setup(self):
         """
         Read in observed data.
@@ -321,29 +296,71 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Get default value for n_uv. THIS HAS TO BE BEFORE THE SUPER() CALL!
         if self.n_uv is None:
             self.n_uv = self._instr_core.n_cells
-            # TODO: there will be a problem if n_cells is zero (i.e. no coarsening was performed).
 
         super().setup()
 
         # we can unpack data now because we know it's always a list of length 1.
         self.data = self.data[0]
+        self.noise = self.noise[0]
 
         self.parameter_names = getattr(self.LikelihoodComputationChain.params, "keys", [])
-
         self.baselines = self.data["baselines"]
         self.frequencies = self.data["frequencies"]
 
-        self.p_data = self.data["p_signal"]
+    def simulate(self, ctx):
+        """
+        Simulate datasets to which this very class instance should be compared.
+        """
+        baselines = ctx.get("baselines")
+        frequencies = ctx.get("frequencies")
+        visibilities = ctx.get("visibilities")
+        p_signal, u_eta, weights = self.compute_power(visibilities, baselines, frequencies)
 
-        print("Got data")
-        # GET COVARIANCE!
+        return [dict(p_signal=p_signal, baselines=baselines, frequencies=frequencies, u_eta=u_eta, weights=weights)]
+
+    def define_noise(self, ctx, model):
+        """
+        Define the properties of the noise... its mean and covariance.
+
+        Note that in general this method should just calculate whatever noise properties are relevant, but in
+        this case that is specifically the mean (of the noise) and its covariance.
+
+        Note also that the outputs of this function are by default *saved* to a file within setup, so it can be
+        checked later.
+
+        It is *only* run on setup, not every iteration. So noise properties that are parameter-dependent must
+        be performed elsewhere.
+
+        Parameters
+        ----------
+        ctx : dict-like
+            The Context object which is assumed to hold the core simulation context.
+
+        model : list of dicts
+            Exactly the output of :meth:`simulate`.
+
+        Returns
+        -------
+        list of dicts
+            In this case, a list with a single dict, which has the mean and covariance in it.
+
+        """
         # Only save the mean/cov if we have foregrounds, and they don't update every iteration (otherwise, get them
         # every iter).
         if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
-            self.foreground_mean, self.foreground_covariance = self.numerical_covariance(nrealisations=self.nrealisations)
+            mean, covariance = self.numerical_covariance(
+                model[0]['baselines'], model[0]['frequencies'],
+                nrealisations=self.nrealisations
+            )
+        else:
+            # Only need thermal variance if we don't have foregrounds, otherwise it will be embedded in the
+            # above foreground covariance
 
-        # TODO: note this is the second part of the bad hack mentioned in the __init__
-        self._do_nrealisations = True
+            weights = model[0]['weights']
+            covariance = self.get_thermal_variance(weights)
+            mean = 0
+
+        return [{"mean":mean, "covariance":covariance}]
 
     def computeLikelihood(self, model):
         "Compute the likelihood"
@@ -353,16 +370,15 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         sig_cov = self.get_signal_covariance(model['p_signal'])
         total_model = model['p_signal']
 
-        if self.foreground_covariance:
-            total_cov = [x+y for x,y in zip(self.foreground_covariance, sig_cov)]
-            total_model += self.foreground_mean
-        elif "fg_cov" in model:
-            # Here we have foreground cores, but they update every iteration.
-            total_cov = [x + y for x, y in
-                         zip(model['fg_cov'], sig_cov)]
-            total_model += model['fg_mean']
+        # If we need to get the foreground covariance
+        if self.foreground_cores and any([fg._updating for fg in self.foreground_cores]):
+            mean, cov = self.numerical_covariance(model['baselines'], model['frequencies'], nrealisations=self.nrealisations)
+            total_model += mean
+
         else:
-            total_cov = sig_cov
+            # Normal case (foreground parameters are not being updated, or there are no foregournds)
+            total_model += self.noise["mean"]
+            total_cov = [x+y for x,y in zip(self.noise['covariance'], sig_cov)]
 
         lnl = lognormpdf(self.data['p_signal'], total_model, total_cov)
 
@@ -389,6 +405,27 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         except AttributeError:
             raise AttributeError("foreground_cores is not available unless emedded in a LikelihoodComputationChain, after setup")
 
+    def get_thermal_variance(self, weights):
+        """
+        Calculate the thermal noise variance on each 2D mode.
+
+        Parameters
+        ----------
+        weights : (neta, n_u)-array
+            The effective number of baselines averaged to create the power spectrum mode.
+
+        Returns
+        -------
+        cov : list
+            A list of arrays defining a block-diagonal covariance matrix, of which the thermal variance is really
+            just the diagonal.
+        """
+        cov = []
+        for weight_eta in weights:
+            cov.append(np.diag(self._instr_core.thermal_variance_baseline / weight_eta))
+
+        return cov
+
     def get_signal_covariance(self, signal_power):
         """
         From a 2D signal (i.e. EoR) power spectrum, make a list of covariances in eta, with length u.
@@ -409,7 +446,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return cov
 
-    def numerical_covariance(self, params={}, nrealisations=200):
+    def numerical_covariance(self, baselines, frequencies, params={}, nrealisations=200):
         """
         Calculate the covariance of the foregrounds.
     
@@ -437,21 +474,20 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             # Create an empty context with the given parameters.
             ctx = self.LikelihoodComputationChain.createChainContext(params)
 
-            print("FOreground cores", self.foreground_cores)
             # For each realisation, run every foreground core (not the signal!)
             for core in self.foreground_cores:
                 core.simulate_data(ctx)
 
-            print(ctx.get("lightcone"))
             # And turn them into visibilities
             self._instr_core.simulate_data(ctx)
 
-            power, ks = self.compute_power(ctx.get("visibilities"), self.baselines, self.frequencies)
+            power, ks, pweights = self.compute_power(ctx.get("visibilities"), baselines, frequencies)
                 
             p.append(power)
             
         mean += np.mean(p, axis=0)
-        
+
+        # Note, this covariance *already* has thermal noise built in.
         if nrealisations > 1:
             cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
         else:
@@ -485,16 +521,17 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Ensure weights correspond to FT.
         weights = np.sum(weights * self.frequency_taper(len(frequencies)), axis=-1)
         
-        power2d, coords = self.get_2d_power(visgrid, [ugrid, ugrid, eta], weights,
-                                            bins=self.n_ubins)
+        power2d, coords, pweights = self.get_2d_power(visgrid, [ugrid, ugrid, eta], weights,
+                                                       bins=self.n_ubins)
 
         u, eta = coords
 
         # Restrict power to eta modes above eta_min
         power2d = power2d[:, eta > self.eta_min]
+        pweights = pweights[:, eta > self.eta_min]
         eta = eta[eta > self.eta_min]
 
-        return power2d, [u, eta]
+        return power2d, [u, eta], pweights
 
     def get_2d_power(self, gridded_vis, coords, weights, bins=100):
         """
@@ -531,9 +568,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         weights[weights==0] = 1e-20
         
         P, radial_bins = angular_average_nd(power_3d, coords, bins, n=2, weights=weights**2, bin_ave=False, get_variance=False)
+
+        # have to make a weight for every eta here..
+        weights = np.tile(np.atleast_3d(weights), (1, 1, len(coords[-1])))
+        weights = angular_average_nd(weights**2, coords, bins, n=2, bin_ave=False, get_variance=False, average=False)[0]
+
         radial_bins = (radial_bins[1:] + radial_bins[:-1])/2
 
-        return P, [radial_bins, coords[2]] # get rid of zeros
+        return P, [radial_bins, coords[2]], weights
 
     @staticmethod
     def grid_visibilities(visibilities, baselines, frequencies, ngrid, umax=None):

@@ -3,6 +3,12 @@ from py21cmmc_fg.core import CoreInstrumental, CorePointSourceForegrounds #, For
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
 import numpy as np
 
+import logging
+logger = logging.getLogger("21CMMC")
+logger.setLevel(logging.INFO)
+#logging.basicConfig(level=logging.INFO) # This will just write out a bit more information, useful for when debugging
+
+
 # ============== SET THESE VARIABLES.
 # These should be kept the same between all tests.
 freq_min = 150.0
@@ -65,6 +71,7 @@ class CustomLikelihood(LikelihoodInstrumental2D):
         super().__init__(n_uv = None, n_ubins=n_ubins, umax=umax, frequency_taper=frequency_taper,
                          simulate=True,
                          **kwargs)
+
 
 def run_mcmc(*args, model_name, params=params, **kwargs):
     return _run_mcmc(
