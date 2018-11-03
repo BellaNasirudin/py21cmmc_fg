@@ -3,10 +3,17 @@ from py21cmmc_fg.core import CoreInstrumental, CorePointSourceForegrounds #, For
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
 import numpy as np
 
+
+DEBUG = True
+
+
 import logging
 logger = logging.getLogger("21CMMC")
-logger.setLevel(logging.INFO)
-#logging.basicConfig(level=logging.INFO) # This will just write out a bit more information, useful for when debugging
+
+if DEBUG:
+    logger.setLevel(logging.DEBUG)
+else:
+    logger.setLevel(logging.WARNING)
 
 
 # ============== SET THESE VARIABLES.
@@ -14,18 +21,30 @@ logger.setLevel(logging.INFO)
 freq_min = 150.0
 freq_max = 160.0
 
-HII_DIM = 80
-DIM = 3*HII_DIM
+if DEBUG:
+    HII_DIM = 80
+else:
+    HII_DIM = 250
+
+DIM = 3 * HII_DIM
 BOX_LEN = 3 * HII_DIM
 
 z_step_factor = 1.04
 
 # Instrument Options
-nfreq = 32
+if DEBUG:
+    nfreq = 32
+else:
+    nfreq = 32
+
 max_bl_length = 300.
 sky_size = 3.0 # in sigma
 max_tile_n = 50
-n_cells = 300
+
+if DEBUG:
+    n_cells = 300
+else:
+    n_cells = 500
 
 # Likelihood options
 n_ubins = 21
