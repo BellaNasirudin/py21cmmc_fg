@@ -71,7 +71,8 @@ core_eor = CoreLightConeModule(
         DIM=DIM
     ),
     z_step_factor=z_step_factor,          # How large the steps between evaluated redshifts are (log).
-    regenerate=False
+    regenerate=False,
+    keep_data_in_memory=DEBUG
 )
 
 
