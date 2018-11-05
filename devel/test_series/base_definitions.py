@@ -2,10 +2,9 @@ from py21cmmc.mcmc import CoreLightConeModule, run_mcmc as _run_mcmc
 from py21cmmc_fg.core import CoreInstrumental, CorePointSourceForegrounds #, ForegroundsBase
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
 import numpy as np
+import os
 
-
-DEBUG = True
-
+DEBUG = bool(os.environ.get("DEBUG", False))
 
 import logging
 logger = logging.getLogger("21CMMC")
@@ -15,6 +14,8 @@ if DEBUG:
 else:
     logger.setLevel(logging.WARNING)
 
+if DEBUG:
+    logger.debug("Running in DEBUG mode.")
 
 # ============== SET THESE VARIABLES.
 # These should be kept the same between all tests.
@@ -35,7 +36,7 @@ z_step_factor = 1.04
 if DEBUG:
     nfreq = 32
 else:
-    nfreq = 32
+    nfreq = 64
 
 max_bl_length = 300.
 sky_size = 3.0 # in sigma

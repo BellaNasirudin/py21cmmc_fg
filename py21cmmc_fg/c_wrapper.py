@@ -18,7 +18,7 @@ def interpolate_visibility_frequencies(visibilities, freq_in, freq_out):
     ]
 
     if freq_out.min() < freq_in.min() or freq_out.max() > freq_in.max():
-        raise ValueError("c interpolation routine cannot deal with out of bounds frequencies!")
+        raise ValueError(f"c interpolation routine cannot deal with out of bounds frequencies! Input: ({freq_in.min()},{freq_in.max()}). Output ({freq_out.min()},{freq_out.max()})")
 
     n_bl, nf_in = visibilities.shape
     nf_out = len(freq_out)

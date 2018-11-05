@@ -7,7 +7,7 @@
 #include <math.h>
 #include <complex.h>
 
-// #define DEBUG
+#define DEBUG
 
 void interpolate_visibility_frequencies(int n_bl, int nf_in, int nf_out, complex double *visibilities, double *freq_in,
                                         double *freq_out, complex double *out){

@@ -30,6 +30,7 @@ import time
 from . import c_wrapper as cw
 from cached_property import cached_property
 
+
 class ForegroundsBase(CoreBase):
     """
     A base class which implements some higher-level functionality that all foreground core modules will require.
@@ -96,7 +97,7 @@ class ForegroundsBase(CoreBase):
             self.frequencies = 1420.0e6 / (1 + self.lightcone_module.lightcone_slice_redshifts)
         elif self.frequencies is None:
             raise ValueError("If no lightcone core is supplied, frequencies must be supplied.")
-        else:
+        elif self.frequencies.max() < 1e6:
             self.frequencies *= 1e6  #Make it Hz
 
         self._make_sims = bool(self.simulate_post_setup)
@@ -335,17 +336,18 @@ class CoreInstrumental(CoreBase):
     being used (and loaded before this).
     """
 
-    def __init__(self, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=300.0,
+    def __init__(self, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
                  integration_time=120, Tsys=240, sky_size=1, sky_size_coord="rad", max_tile_n=50, n_cells=None,
                  effective_collecting_area=16.0,
                  *args, **kwargs):
         """
         Parameters
         ----------
-        antenna_posfile : str, {"mwa_phase2", "ska_low_v5"}
+        antenna_posfile : str, {"mwa_phase2", "ska_low_v5", "grid_centres"}
             Path to a file containing antenna positions. File must be in the format such that the second column is the
             x position (in metres), and third column the y position (in metres). Some files are built-in, and these can
-            be accessed by using the options defined above.
+            be accessed by using the options defined above. The option "grid_centres" is for debugging purposes, and
+            dynamically produces baselines at the UV grid nodes. This can be used to approximate an exact DFT.
 
         freq_min, freq_max : float
             min/max frequencies of the observation, in MHz.
@@ -357,7 +359,8 @@ class CoreInstrumental(CoreBase):
             The physical diameter of the tiles, in metres.
 
         max_bl_length : float, optional
-            The maximum length (in metres) of the baselines to be included in the analysis.
+            The maximum length (in metres) of the baselines to be included in the analysis. By default, uses all
+            baselines.
 
         integration_time : float,optional
             The length of the observation, in seconds.
@@ -424,8 +427,9 @@ class CoreInstrumental(CoreBase):
             # baselines is a dim2 array of x and y displacements.
             self.baselines = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2]) * un.m
 
-            self.baselines = self.baselines[
-                self.baselines[:, 0].value ** 2 + self.baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
+            if self.max_bl_length:
+                self.baselines = self.baselines[
+                    self.baselines[:, 0].value ** 2 + self.baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
 
     def setup(self):
 
@@ -465,12 +469,12 @@ class CoreInstrumental(CoreBase):
         The size of the base 21cmFAST simulation in lm co-ordinates.
         """
         for m in self.LikelihoodComputationChain.getCoreModules():
-            if isinstance(m, CoreLightConeModule):
+            if isinstance(m, CoreLightConeModule) or isinstance(m, ForegroundsBase):
                 return ForegroundsBase.get_sky_size(m.user_params.BOX_LEN, self.lightcone_slice_redshifts,
                                                     m.cosmo_params.cosmo)
 
         # If no lightcone module is found, raise an exception.
-        raise AttributeError("No eor_size is applicable, as no LightCone module is loaded")
+        raise AttributeError("No eor_size is applicable, as no LightCone or ForegroundsBase modules are loaded")
 
     @property
     def n_stitch(self):
@@ -527,7 +531,6 @@ class CoreInstrumental(CoreBase):
             total_brightness += lc.brightness_temp
 
         total_brightness = self.stitch_and_coarsen(total_brightness)
-
         vis = self.add_instrument(total_brightness)
 
         ctx.add("visibilities", vis)
@@ -678,7 +681,7 @@ class CoreInstrumental(CoreBase):
         """
         logger.info("Converting to UV space...")
         t1 = time.time()
-        ft, uv_scale = fft(sky, [L, L], axes=(0, 1))
+        ft, uv_scale = fft(sky, [L, L], axes=(0, 1), a = 0, b=2*np.pi)
         logger.info("... took %s sec." % (time.time() - t1))
         return ft, uv_scale
 

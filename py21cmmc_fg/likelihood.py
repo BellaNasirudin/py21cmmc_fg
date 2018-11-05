@@ -226,9 +226,9 @@ class Likelihood2D(LikelihoodBase):
 
 
 class LikelihoodInstrumental2D(LikelihoodBaseFile):
-    required_cores = [CoreLightConeModule, CoreInstrumental]
+    required_cores = [CoreInstrumental]
 
-    def __init__(self, n_uv=None, n_ubins=30, umax = 290, frequency_taper=np.blackman, nrealisations = 100,
+    def __init__(self, n_uv=None, n_ubins=30, umax = None, frequency_taper=np.blackman, nrealisations = 100,
                  model_uncertainty = 0.15, eta_min = 0, **kwargs):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
@@ -300,12 +300,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         super().setup()
 
         # we can unpack data now because we know it's always a list of length 1.
-        self.data = self.data[0]
-        self.noise = self.noise[0]
+        if self.data:
+            self.data = self.data[0]
+            self.baselines = self.data["baselines"]
+            self.frequencies = self.data["frequencies"]
+        if self.noise:
+            self.noise = self.noise[0]
 
         self.parameter_names = getattr(self.LikelihoodComputationChain.params, "keys", [])
-        self.baselines = self.data["baselines"]
-        self.frequencies = self.data["frequencies"]
 
     def simulate(self, ctx):
         """
