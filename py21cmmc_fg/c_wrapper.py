@@ -3,7 +3,7 @@ import ctypes
 import glob
 import numpy as np
 # Build the extension function (this should be negligible performance-wise)
-fl = glob.glob(os.path.join(os.path.dirname(__file__), "c_routines*"))[0]
+fl = glob.glob(os.path.join(os.path.dirname(__file__), "c_routines.cpython*"))[0]
 
 
 def interpolate_visibility_frequencies(visibilities, freq_in, freq_out):
