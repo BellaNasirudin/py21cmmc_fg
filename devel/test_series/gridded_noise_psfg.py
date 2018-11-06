@@ -24,6 +24,7 @@ core_fg = CorePointSourceForegrounds(S_min=1e-2)
 
 likelihood = CustomLikelihood(
     datafile=[f'data/{model_name}.npz'],
+    noisefile=[f'data/{model_name}.noise.npz'],
     nrealisations = 10 if DEBUG else 150
 )
 
