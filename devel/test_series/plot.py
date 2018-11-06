@@ -9,7 +9,7 @@ from py21cmmc.mcmc import analyse
 import sys
 
 try:
-    model_name = sys.argv[1]
+    model_name = "InstrumentalGridTestNoisePSFG" #sys.argv[1]
 except IndexError:
     raise ValueError("Please give a model name as the only argument")
 
@@ -34,20 +34,38 @@ plt.clf()
 
 
 # Make data power spectrum plot
-plt.imshow(np.log10(data['p_signal'].T), origin='lower')
+plt.figure(figsize=(12,8))
+plt.imshow(np.log10(data['p_signal'].T), origin='lower', extent=(data["u_eta"][0][0], data["u_eta"][0][-1], data["u_eta"][1][0], data["u_eta"][1][-1]))
+plt.xscale("log")
+plt.yscale("log")
+plt.ylabel("$\eta$", fontsize=12)
+plt.xlabel("$\sqrt{u^2+v^2}$", fontsize=12)
+plt.title("EoR Signal")
 plt.colorbar()
 plt.savefig(figname.format("DataPS"))
 plt.clf()
 
 # Make signal-to-noise power spectrum plot
+plt.figure(figsize=(12,8))
 noise_variance = np.array([np.diag(c) for c in noise['covariance']])
-plt.imshow(np.log10(data['p_signal'].T/ noise_variance.T), origin='lower')
+plt.imshow(np.log10(data['p_signal'].T/ noise_variance.T), origin='lower', extent=(data["u_eta"][0][0], data["u_eta"][0][-1], data["u_eta"][1][0], data["u_eta"][1][-1]))
+plt.xscale("log")
+plt.yscale("log")
+plt.ylabel("$\eta$", fontsize=12)
+plt.xlabel("$\sqrt{u^2+v^2}$", fontsize=12)
+plt.title("Signal to Noise Power Spectrum")
 plt.colorbar()
 plt.savefig(figname.format("SignalNoisePS"))
 plt.clf()
 
 # Make noise power spectrum plot
-plt.imshow(noise_variance.T, origin='lower')
+plt.figure(figsize=(12,8))
+plt.imshow(noise_variance.T, origin='lower', extent=(data["u_eta"][0][0], data["u_eta"][0][-1], data["u_eta"][1][0], data["u_eta"][1][-1]))
+plt.xscale("log")
+plt.yscale("log")
+plt.ylabel("$\eta$", fontsize=12)
+plt.xlabel("$\sqrt{u^2+v^2}$", fontsize=12)
+plt.title("Noise")
 plt.colorbar()
 plt.savefig(figname.format("NoisePS"))
 plt.clf()
