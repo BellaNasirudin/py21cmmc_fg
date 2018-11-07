@@ -228,7 +228,7 @@ class Likelihood2D(LikelihoodBase):
 class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
 
-    def __init__(self, n_uv=None, n_ubins=30, umax = None, frequency_taper=np.blackman, nrealisations = 100,
+    def __init__(self, n_uv=300, n_ubins=30, umax = None, frequency_taper=np.blackman, nrealisations = 100,
                  model_uncertainty = 0.15, eta_min = 0, **kwargs):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
@@ -293,10 +293,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         Data should be in an npz file, and contain a "k" and "p" array. k should be in 1/Mpc, and p in Mpc**3.
         """
-        # Get default value for n_uv. THIS HAS TO BE BEFORE THE SUPER() CALL!
-        if self.n_uv is None:
-            self.n_uv = self._instr_core.n_cells
-
         super().setup()
 
         # we can unpack data now because we know it's always a list of length 1.

@@ -29,8 +29,8 @@ void interpolate_visibility_frequencies(int n_bl, int nf_in, int nf_out, complex
     }
 }
 
-#define INDB(x,y,z) (z + (y*nf) + (x * nf*n_out))
-#define INDS(x,y,z) (z + (y*nf) + (x * nf*n_sim))
+#define INDB(x,y,z) ((z) + ((y)*nf) + ((x) * nf*n_out))
+#define INDS(x,y,z) ((z) + ((y)*nf) + ((x) * nf*n_sim))
 
 
 void stitch_and_coarsen_sky(int n_sim, int nf, int n_out, double small_sky_size, double big_sky_size,
@@ -95,3 +95,174 @@ void stitch_and_coarsen_sky(int n_sim, int nf, int n_out, double small_sky_size,
     }
 }
 
+double attenuation(double l, double wavelength, double tile_diameter){
+    double sigma = 0.42 * wavelength/tile_diameter;
+    return exp(-l*l/(2*sigma*sigma));
+}
+
+void get_tiled_visibilities(int n_sim, int nf, int n_bl, double dtheta, double l_extent,
+                            double tile_diameter, int n_new,
+                            double *sim, double *x_bl, double *y_bl, double *wavelengths, complex double *visibilities,
+                            double *new_image){
+    /*
+        We put all of this in *one* function to save memory and time. In one function, it doesn't have to actually
+        *stitch* boxes and therefore use too much memory, it can re-use the same initial box.
+
+        NOTE: the sky_size is in *radians*, and is the size of the simulation assuming it had been wrapped in an
+              observing sphere. However, for the purposes of this function, we *equate* angles with (l,m).
+              This is a necessary evil, because the simulation is euclidean. If we try to correct the co-ordinate
+              transform, it will result in un-physical pushing of the corners of the simulation. Assuming angles
+              and (l,m) are interchangeable is much simpler, and is correct in the most important regions.
+
+              To fix this properly, one must modify the *simulation* box itself when creating the lightcone.
+
+              The sky_size_required is in (l,m), and is the minimum size in any direction that is
+              required to tile the original simulation in order to consider the result "converged".
+              To avoid distorting line-of-sight modes, we assume each redshift slice of the simulation has the same
+              *angular* width (i.e. the angle-size relation doesn't change over the redshift range).
+
+        This function takes a box of a given size, and effectively linearly tiles the box in the first two dimensions,
+
+        Ultimately, since the simulation is periodic in the transverse plane, the choice of where "zenith" is does
+        not matter, and we naturally choose it to be the centre of the cell at index (0,0).
+
+    */
+
+    // Size of the cells in radians.
+    double absl = 0, l=0, m=0;
+    double u,v, beam;
+    int i_f, i_bl, ind, ix=n_sim/2,iy=n_sim/2;
+
+    int i_up=n_new/2, j_up=n_new/2, i_down=n_new/2, j_down=n_new/2;
+
+#ifdef DEBUG
+    // Check input parameters
+    printf("n_sim: %d, nf: %d, n_bl: %d, dtheta: %g, l_extent: %g, n_new=%d\n", n_sim, nf, n_bl, dtheta, l_extent, n_new);
+#endif
+
+    complex double PPI = -2 * 3.141592653589 * I;
+
+
+    while(absl<=l_extent){
+        while (absl<=l_extent){
+
+             for(i_bl=0;i_bl<n_bl;i_bl++){
+                 for(i_f=0;i_f<nf;i_f++){
+                    ind = i_f + i_bl * nf;
+
+                    beam = attenuation(absl, wavelengths[i_f], tile_diameter);
+
+
+                    u = x_bl[i_bl] / wavelengths[i_f];
+                    v = y_bl[i_bl] / wavelengths[i_f];
+
+                    // Top-right quadrant
+
+                    visibilities[ind] += beam * cexp(PPI*(u*l + v*m)) * sim[INDS(ix, iy, i_f)] ;
+/*
+                    if(ind==1) {
+                        printf("beam=%lf uv=(%lf,%lf) lm=(%lf,%lf) arg=%lf arg2=%lf rl,im=(%lf,%lf)\n", beam,
+                                u, v, l, m, u*l+v*m, cimag(PPI*(u*l+v*m)), creal(cexp(PPI*(u*l+v*m))),
+                                cimag(cexp(PPI*(u*l+v*m))));
+                        printf("sim(s)=%lf %lf %lf %lf (ix=%d iy=%d i_f=%d ind=(%d,%d,%d,%d))\n", sim[INDS(ix, iy, i_f)], sim[INDS(n_sim-ix-1, iy, i_f)],
+                                                         sim[INDS(ix, n_sim-iy-1, i_f)],  sim[INDS(n_sim-ix-1, n_sim-iy-1, i_f)],
+                                                         ix,iy,i_f, INDS(ix, iy, i_f),INDS(n_sim-ix-1, iy, i_f),INDS(ix, n_sim-iy-1, i_f),INDS(n_sim-ix-1, n_sim-iy-1, i_f)
+                        );
+                    }
+*/
+
+                    // Top-left quadrant (unless l is zero, avoids double counting the centre/central lines)
+                    if (l>0) visibilities[ind] += beam * cexp(PPI*(-u*l + v*m)) * sim[INDS(n_sim-ix-1, iy, i_f)];
+
+                    if (m>0) {
+                        // Bottom-right quadrant
+                        visibilities[ind] += beam * cexp(PPI * (u*l - v*m)) * sim[INDS(ix, n_sim-iy-1, i_f)];
+
+                        // Bottom-left quadrant
+                        if(l>0) visibilities[ind] += beam * cexp(-PPI * (u*l + v*m)) * sim[INDS(n_sim-ix-1, n_sim-iy-1, i_f)];
+                    }
+                 }
+             }
+
+             //printf("%d %d %d\n", i_up, j_up, n_new);
+             new_image[j_up + i_up*n_new] = beam * sim[INDS(ix, iy, i_f)];
+             new_image[j_up + i_down*n_new] = beam * sim[INDS(n_sim-ix-1, iy, i_f)];
+             new_image[j_down + i_up*n_new] = beam * sim[INDS(ix, n_sim-iy-1, i_f)];
+             new_image[j_down + i_down*n_new] = beam * sim[INDS(n_sim-ix-1, n_sim-iy-1, i_f)];
+
+             j_up++;
+             j_down--;
+
+             iy++;
+             iy = iy%n_sim;
+             m += dtheta;
+             absl = sqrt(l*l + m*m);
+
+             if(absl>l_extent) printf("BIGGER: %g %g %g %g\n", l, m, absl, visibilities[1]);
+
+        }
+
+         i_up++;
+         i_down--;
+
+         j_up = n_new/2;
+         j_down = n_new/2;
+
+         ix++;
+         ix = ix%n_sim;
+         l += dtheta;
+         m = 0;
+         iy=n_sim/2;
+         absl = sqrt(l*l + m*m);
+
+    }
+}
+
+
+void getvis(int nf, int nbl, int nsource,  double *wavelengths, double *x_bl, double *y_bl,
+            double *source_flux, double *l, double *m, double complex *vis){
+    /*
+        Direct visibility calculation over multiple frequencies/wavelengths
+
+        Parameters
+        ----------
+        nf :
+            number of frequencies/wavelengths
+        nbl :
+            number of baselines
+        nsource :
+            number of sources
+        wavelengths : length=nf
+            Wavelengths (in m) observed.
+        x_bl, y_bl : length=nbl
+            Baseline lengths (in m).
+        source_flux : length=nsource*nf
+            Source flux density (Jy) for each source at each frequency
+        l, m : length=nsource
+            Positions (in l,m coordinates) of the sources on the sky.
+
+        Returns
+        -------
+        Returns nothing, but *fills* `vis`.
+
+        vis : length=nbl*nf
+            The resultant visibilities, after direct calculation.
+
+    */
+    int i,j,k;
+    double u,v;
+
+    complex double PPI = -2*3.1415653589*I;
+
+
+    for(k=0;k<nbl;k++){
+        for(i=0;i<nf;i++){
+            u = x_bl[k]/wavelengths[i];
+            v = y_bl[k]/wavelengths[i];
+
+            for(j=0;j<nsource;j++){
+                vis[k*nf + i] += source_flux[j*nf + i] * cexp(PPI*(u*l[j] + v*m[j]));
+            }
+        }
+    }
+}

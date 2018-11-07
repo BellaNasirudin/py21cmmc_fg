@@ -10,8 +10,13 @@ import numpy as np
 from powerbox.dft import fft, ifft
 
 import matplotlib.pyplot as plt
+import healpy as hp
 
 RUNNING_AS_TEST = True
+
+import logging
+logger = logging.getLogger("21CMMC")
+logger.setLevel(logging.DEBUG)
 
 def test_imaging(fg_cls):
     """
@@ -19,12 +24,13 @@ def test_imaging(fg_cls):
     reconstruct the image. It is a test of the all-round process of sampling/gridding.
     """
 
-    core_ss = fg_cls(frequencies=np.array([149., 151.0]))
+    core_ss = fg_cls(frequencies=np.array([149., 151.0]), nside_base=6)
     core_instr = CoreInstrumental(
         freq_min=150.0,
         freq_max=150.1,
         nfreq=2,
-        antenna_posfile='grid_centres',
+        antenna_posfile='baseline_grid',
+        antenna_posfile_is_baselines=True,
         Tsys=0
     )
 
@@ -41,25 +47,29 @@ def test_imaging(fg_cls):
     image_plane, image_grid = ifft(visgrid[:, :, 0], Lk=(ugrid[1] - ugrid[0]) * len(ugrid), a=0, b=2 * np.pi)
 
     if not RUNNING_AS_TEST:
-        fig, ax = plt.subplots(2, 2, figsize=(12, 12))
+        fig, ax = plt.subplots(2, 1, figsize=(6, 12))
 
-        mp = ax[0, 0].imshow(ctx.get("foregrounds")[0].brightness_temp[:, :, 0].T, origin='lower',
-                             extent=(0, core_ss.user_params.BOX_LEN)*2)
+        plt.axes(ax[0,0])
+        hp.visufunc.mollview(ctx.get("foregrounds")[0], hold=True)
+
+        #mp = ax[0, 0].imshow(ctx.get("foregrounds")[0], origin='lower',
+        #                     extent=(0, core_ss.user_params.BOX_LEN)*2)
         ax[0, 0].set_title("Original foregrounds")
-        cbar = plt.colorbar(mp, ax=ax[0, 0])
-        ax[0, 0].set_xlabel("x [Mpc]")
-        ax[0, 0].set_ylabel("y [Mpc]")
-        cbar.set_label("Brightness Temp. [K]")
+        #cbar = plt.colorbar(mp, ax=ax[0, 0])
+        #ax[0, 0].set_xlabel("x [Mpc]")
+        #ax[0, 0].set_ylabel("y [Mpc]")
+        #cbar.set_label("Brightness Temp. [K]")
 
-        mp = ax[1, 0].imshow(
-            ctx.get("new_sky")[:, :, 0].T, origin='lower',
-            extent=(core_instr.sky_coords.min(), core_instr.sky_coords.max(),)*2
-        )
-        ax[1, 0].set_title("Stitched/Coarsened Foregrounds")
-        cbar = plt.colorbar(mp, ax=ax[1, 0])
-        ax[1, 0].set_xlabel("l")
-        ax[1, 0].set_ylabel("m")
-        cbar.set_label("Brightness Temp. [K]")
+        #
+        # mp = ax[1, 0].imshow(
+        #     ctx.get("new_sky")[:, :, 0].T, origin='lower',
+        #     extent=(core_instr.sky_coords.min(), core_instr.sky_coords.max(),)*2
+        # )
+        # ax[1, 0].set_title("Stitched/Coarsened Foregrounds")
+        # cbar = plt.colorbar(mp, ax=ax[1, 0])
+        # ax[1, 0].set_xlabel("l")
+        # ax[1, 0].set_ylabel("m")
+        # cbar.set_label("Brightness Temp. [K]")
 
         mp = ax[0, 1].imshow(np.abs(image_plane).T, origin='lower',
                              extent=(image_grid[0].min(), image_grid[0].max(),) * 2)
@@ -73,14 +83,14 @@ def test_imaging(fg_cls):
         beam_sky = core_instr.conversion_factor_K_to_Jy(core_instr.sim_frequencies,
                                                         core_instr.beam_area(core_instr.sim_frequencies)) * attenuation
 
-        mp = ax[1, 1].imshow(ctx.get("new_sky")[:, :, 0].T * beam_sky[:, :, 0].T, origin='lower', extent=(
-        core_instr.sky_coords.min(), core_instr.sky_coords.max(), core_instr.sky_coords.min(),
-        core_instr.sky_coords.max()))
-        ax[1, 1].set_title("Stitched/Coarsened+Beam Foregrounds")
-        cbar = plt.colorbar(mp, ax=ax[1, 1])
-        ax[1, 1].set_xlabel("l")
-        ax[1, 1].set_ylabel("m")
-        cbar.set_label("Flux Density. [Jy]")
+        # mp = ax[1, 1].imshow(ctx.get("new_sky")[:, :, 0].T * beam_sky[:, :, 0].T, origin='lower', extent=(
+        # core_instr.sky_coords.min(), core_instr.sky_coords.max(), core_instr.sky_coords.min(),
+        # core_instr.sky_coords.max()))
+        # ax[1, 1].set_title("Stitched/Coarsened+Beam Foregrounds")
+        # cbar = plt.colorbar(mp, ax=ax[1, 1])
+        # ax[1, 1].set_xlabel("l")
+        # ax[1, 1].set_ylabel("m")
+        # cbar.set_label("Flux Density. [Jy]")
 
         plt.savefig("test_imaging_%s.png"%fg_cls.__name__)
         plt.clf()
@@ -94,12 +104,10 @@ def test_imaging_single_source():
             Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
             model.
             """
-            sky = np.zeros((self.user_params.HII_DIM, self.user_params.HII_DIM, len(self.frequencies)))
-            sky[self.user_params.HII_DIM // 2, self.user_params.HII_DIM // 2] = 1.0
-            return sky
+            sky = np.zeros((self.npixels, len(self.frequencies)))
+            sky[np.logical_and(self.angles[0]>0.1, self.angles[0]<0.2)] = 1.0
 
-    SingleSource.defaults['box_len'] = 10000
-    SingleSource.defaults['sky_cells'] = 500
+            return sky
 
     test_imaging(SingleSource)
 
@@ -112,12 +120,9 @@ def test_imaging_source_line():
             Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
             model.
             """
-            sky = np.zeros((self.user_params.HII_DIM, self.user_params.HII_DIM, len(self.frequencies)))
-            sky[self.user_params.HII_DIM // 2] = 1.0
+            sky = np.zeros((self.npixels, len(self.frequencies)))
+            sky[np.logical_and(self.angles[1]>-0.1, self.angles[1]<0.1)] = 1.0
             return sky
-
-    SourceLine.defaults['box_len'] = 10000
-    SourceLine.defaults['sky_cells'] = 500
 
     test_imaging(SourceLine)
 
@@ -152,4 +157,4 @@ if __name__ == "__main__":
     RUNNING_AS_TEST = False
     test_imaging_single_source()
     test_imaging_source_line()
-    test_imaging_source_ring()
+#    test_imaging_source_ring()
