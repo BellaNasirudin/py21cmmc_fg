@@ -234,10 +234,6 @@ class CorePointSourceForegrounds(ForegroundsBase):
         n_bar = quad(lambda x: alpha * x ** (-beta), S_min, S_max)[0] * self.sky_size ** 2  # Need to multiply by sky size in steradian!
 
         # Generate the number of sources following poisson distribution
-        # Make sure it's not 0!
-        # TODO: bella, I don't think it's statistically correct to force there to be sources. If the source count
-        # TODO: is so low that you can get zero sources, a warning should be raised to alert the user, but it's still
-        # TODO: statistically valid.
         n_sources = np.random.poisson(n_bar)
 
         if not n_sources:

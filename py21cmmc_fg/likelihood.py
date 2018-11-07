@@ -232,7 +232,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
 
     def __init__(self, n_uv=None, n_ubins=30, umax = None, frequency_taper=np.blackman, nrealisations = 100,
-                 model_uncertainty = 0.15, eta_min = 0, **kwargs):
+                 model_uncertainty = 0.15, eta_min = 0, use_analytical_noise=False, **kwargs):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
 
@@ -269,6 +269,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         eta_min : float, optional
             Minimum eta value to consider in the model. This will be applied at every u value.
 
+        use_analytical_noise : bool, optional
+            Whether to use analytical estimate of noise properties (eg. mean and covariance).
+
         Other Parameters
         ----------------
         datafile : str
@@ -286,6 +289,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         self.nrealisations = nrealisations
         self.model_uncertainty = model_uncertainty
         self.eta_min = eta_min
+
+        self.use_analytical_noise = use_analytical_noise
 
         # Set the mean and covariance of foregrounds to zero by default
         self.foreground_mean, self.foreground_covariance = 0, 0
@@ -353,22 +358,32 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Only save the mean/cov if we have foregrounds, and they don't update every iteration (otherwise, get them
         # every iter).
         if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
-#            mean, covariance = self.numerical_covariance(
-#                model[0]['baselines'], model[0]['frequencies'],
-#                nrealisations=self.nrealisations
-#            )
-            print("DOING THIS ANALYTICAL THING")
-            mean = self.numerical_covariance(
-                model[0]['baselines'], model[0]['frequencies'],
-                nrealisations=self.nrealisations
-            )[0]
-            print("UV IS ", model[0]["u_eta"])
-            print("ETA IS ", model[0]["u_eta"][-1])
-            print(np.median(model[0]["frequencies"]))
-            covariance = self.analytical_covariance(model[0]["u_eta"][0], model[0]["u_eta"][-1], np.median(model[0]["frequencies"]), model[0]["frequencies"].max()-model[0]["frequencies"].min())
+            if not self.use_analytical_noise:
+                mean, covariance = self.numerical_covariance(
+                    model[0]['baselines'], model[0]['frequencies'],
+                    nrealisations=self.nrealisations
+                )
+            else:
+                logger.DEBUG("DOING THIS ANALYTICAL THING")
+
+                # Still getting mean numerically for now...
+                mean = self.numerical_covariance(
+                    model[0]['baselines'], model[0]['frequencies'],
+                    nrealisations=self.nrealisations
+                )[0]
+
+                print("UV IS ", model[0]["u_eta"])
+                print("ETA IS ", model[0]["u_eta"][-1])
+                print(np.median(model[0]["frequencies"]))
+                covariance = self.analytical_covariance(model[0]["u_eta"][0], model[0]["u_eta"][-1], np.median(model[0]["frequencies"]), model[0]["frequencies"].max()-model[0]["frequencies"].min())
+
+                weights = model[0]['weights']
+                thermal_covariance = self.get_thermal_variance(weights)
+                covariance = [x+y for x,y in zip(covariance, thermal_covariance)]
+
         else:
             # Only need thermal variance if we don't have foregrounds, otherwise it will be embedded in the
-            # above foreground covariance
+            # above foreground covariance... BUT NOT IF THE FOREGROUND COVARIANCE IS ANALYTIC!!
 
             weights = model[0]['weights']
             covariance = self.get_thermal_variance(weights)
