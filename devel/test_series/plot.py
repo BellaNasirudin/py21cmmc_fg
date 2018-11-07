@@ -60,7 +60,7 @@ plt.clf()
 
 # Make noise power spectrum plot
 plt.figure(figsize=(12,8))
-plt.imshow(noise_variance.T, origin='lower', extent=(data["u_eta"][0][0], data["u_eta"][0][-1], data["u_eta"][1][0], data["u_eta"][1][-1]))
+plt.imshow(np.log10(noise_variance.T), origin='lower', extent=(data["u_eta"][0][0], data["u_eta"][0][-1], data["u_eta"][1][0], data["u_eta"][1][-1]))
 plt.xscale("log")
 plt.yscale("log")
 plt.ylabel("$\eta$", fontsize=12)
@@ -70,8 +70,12 @@ plt.colorbar()
 plt.savefig(figname.format("NoisePS"))
 plt.clf()
 
-# Make noise power spectrum plot
-plt.imshow(noise['covariance'][0], origin='lower')
+# Make covariance of noise power spectrum plot
+plt.figure(figsize=(12,8))
+plt.imshow(np.log10(noise['covariance'][0]), origin='lower', extent = (data["u_eta"][1][0], data["u_eta"][1][-1], data["u_eta"][1][0], data["u_eta"][1][-1]))
+plt.xlabel("$\eta$", fontsize=12)
+plt.ylabel("$\eta$", fontsize=12)
+plt.title("Cov(Noise)")
 plt.colorbar()
 plt.savefig(figname.format("NoiseCov"))
 plt.clf()
