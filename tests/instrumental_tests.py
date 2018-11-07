@@ -47,10 +47,10 @@ def test_imaging(fg_cls):
     image_plane, image_grid = ifft(visgrid[:, :, 0], Lk=(ugrid[1] - ugrid[0]) * len(ugrid), a=0, b=2 * np.pi)
 
     if not RUNNING_AS_TEST:
-        fig, ax = plt.subplots(2, 1, figsize=(6, 12))
+        fig, ax = plt.subplots(2,2, figsize=(12,10), squeeze=False)
 
         plt.axes(ax[0,0])
-        hp.visufunc.mollview(ctx.get("foregrounds")[0], hold=True)
+        hp.visufunc.mollview(ctx.get("foregrounds")[0][:,0], hold=True, rot=(0 , 90))
 
         #mp = ax[0, 0].imshow(ctx.get("foregrounds")[0], origin='lower',
         #                     extent=(0, core_ss.user_params.BOX_LEN)*2)
@@ -79,9 +79,11 @@ def test_imaging(fg_cls):
         ax[0, 1].set_ylabel("m")
         cbar.set_label("Flux Density. [Jy]")
 
-        attenuation = core_instr.beam(core_instr.sim_frequencies)
-        beam_sky = core_instr.conversion_factor_K_to_Jy(core_instr.sim_frequencies,
-                                                        core_instr.beam_area(core_instr.sim_frequencies)) * attenuation
+        l = np.sin(core_ss.angles[0])  # get |l| co-ordinate
+        attenuation = core_instr.beam(l, core_ss.frequencies)
+        beam_sky = ctx.get("foregrounds")[0] * attenuation
+        plt.axes(ax[1,1])
+        hp.visufunc.mollview(beam_sky[:, 0], hold=True, rot=(0, 90))
 
         # mp = ax[1, 1].imshow(ctx.get("new_sky")[:, :, 0].T * beam_sky[:, :, 0].T, origin='lower', extent=(
         # core_instr.sky_coords.min(), core_instr.sky_coords.max(), core_instr.sky_coords.min(),
@@ -105,7 +107,7 @@ def test_imaging_single_source():
             model.
             """
             sky = np.zeros((self.npixels, len(self.frequencies)))
-            sky[np.logical_and(self.angles[0]>0.1, self.angles[0]<0.2)] = 1.0
+            sky[self.angles[0]<0.1] = 1.0
 
             return sky
 
