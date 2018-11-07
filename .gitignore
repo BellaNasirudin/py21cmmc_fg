@@ -18,3 +18,5 @@ build/*
 *.so
 
 devel/test_series/\.ipynb_checkpoints/
+
+tests/derpa\.npy

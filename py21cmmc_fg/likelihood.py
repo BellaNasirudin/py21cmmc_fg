@@ -24,6 +24,7 @@ from scipy.special import erf
 import logging
 logger = logging.getLogger("21CMMC")
 
+from cached_property import cached_property
 
 class Likelihood2D(LikelihoodBase):
     required_cores = [CoreLightConeModule]
@@ -413,26 +414,24 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return lnl
 
-    @property
-    def _eor_core(self):
-        for m in self.LikelihoodComputationChain.getCoreModules():
+    @cached_property
+    def _lightcone_core(self):
+        for m in self._cores:
             if isinstance(m, CoreLightConeModule):
                 return m
-        return None
+
+        raise AttributeError("No lightcone core loaded")
 
 
     @property
     def _instr_core(self):
-        for m in self.LikelihoodComputationChain.getCoreModules():
+        for m in self._cores:
             if isinstance(m, CoreInstrumental):
                 return m
 
     @property
     def foreground_cores(self):
-        try:
-            return [m for m in self.LikelihoodComputationChain.getCoreModules() if isinstance(m, ForegroundsBase)]
-        except AttributeError:
-            raise AttributeError("foreground_cores is not available unless emedded in a LikelihoodComputationChain, after setup")
+        return [m for m in self._cores if isinstance(m, ForegroundsBase)]
 
     def get_thermal_variance(self, weights):
         """
@@ -720,7 +719,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         if umax is None:
             umax = (max([np.abs(b).max() for b in baselines]) * frequencies.max()/const.c).value
-        
+
+        print(ngrid, umax, baselines.min(), baselines.max())
+
         ugrid = np.linspace(-umax, umax, ngrid+1) # +1 because these are bin edges.
         visgrid = np.zeros((ngrid, ngrid, len(frequencies)), dtype=np.complex128)
         weights = np.zeros((ngrid, ngrid, len(frequencies)))

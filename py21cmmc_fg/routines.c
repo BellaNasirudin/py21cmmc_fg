@@ -29,6 +29,62 @@ void interpolate_visibility_frequencies(int n_bl, int nf_in, int nf_out, complex
     }
 }
 
+void interpolate_map_frequencies(int n_map, int nf_in, int nf_out, double *map, double *freq_in,
+                                 double *freq_out, int nmap_is_all, double *out){
+    /*
+        Linearly interpolate each cell in a map onto a given set of frequencies.
+
+        Assumes freq_in and freq_out are monotonically increasing (not necessarily regular). Also cannot deal
+        with the case where freq_out is oiutside of freq_in.
+
+        Parameters
+        ----------
+        n_map :
+            The number of pixels in the map if nmap_is_all>0, otherwise the number of pixels on a side of a square.
+        nf_in :
+            Number of frequencies in the input map
+        nf_out :
+            Number of frequencies in the output map
+        map : length=n_map*nf_in or n_map*n_map*nf_in
+            The input map.
+        freq_in : length=nf_in
+            Frequencies of the input (arbitrary units)
+        freq_out : length=nf_out
+            Frequencies of the output (same units as freq_in)
+        nmap_is_all :
+            Wether n_map is all of the pixels, or just the length of a  side.
+        out : length=n_map*nf_out or n_map*n_map*nf_out
+            The output, interpolated, map
+    */
+
+    int i,j, k;
+    double d1,d2;
+
+    int N;
+
+    if(nmap_is_all>0){
+        N = n_map;
+    }else{
+        N = n_map*n_map;
+    }
+
+    j = 0;
+
+    for(i=0;i<nf_out;i++){
+        while(freq_out[i]>freq_in[j]){
+            j++;
+        }
+
+        d1 = freq_out[i] - freq_in[j-1];
+        d2 = freq_in[j] - freq_out[i];
+
+        for(k=0;k<N;k++){
+            out[i * N + k] = (d2 * map[k * nf_in + (j-1)] + d1 * map[k * nf_in + j])/(d1 + d2);
+        }
+    }
+}
+
+
 #define INDB(x,y,z) (z + (y*nf) + (x * nf*n_out))
 #define INDS(x,y,z) (z + (y*nf) + (x * nf*n_sim))
 

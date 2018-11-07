@@ -79,17 +79,17 @@ core_eor = CoreLightConeModule(
 
 class CustomCoreInstrument(CoreInstrumental):
     def __init__(self, freq_min=freq_min, freq_max = freq_max, nfreq=nfreq, max_bl_length=max_bl_length,
-                 sky_size=sky_size, max_tile_n = max_tile_n, n_cells = n_cells,
+                 sky_size=sky_size, n_cells = n_cells,
                  **kwargs):
         super().__init__(freq_max=freq_max, freq_min=freq_min, max_bl_length=max_bl_length,
                          nfreq=nfreq, tile_diameter=4.0, integration_time=1200,
-                         sky_size_coord='sigma', sky_size=sky_size, max_tile_n=max_tile_n, n_cells=n_cells,
+                         sky_extent=sky_size, n_cells=n_cells,
                          **kwargs)
 
 
 class CustomLikelihood(LikelihoodInstrumental2D):
     def __init__(self, n_ubins=21, umax=290, frequency_taper=taper, **kwargs):
-        super().__init__(n_uv = None, n_ubins=n_ubins, umax=umax, frequency_taper=frequency_taper,
+        super().__init__(n_ubins=n_ubins, umax=umax, frequency_taper=frequency_taper,
                          simulate=True,
                          **kwargs)
 

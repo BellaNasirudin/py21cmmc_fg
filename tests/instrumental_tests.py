@@ -13,17 +13,23 @@ import matplotlib.pyplot as plt
 
 RUNNING_AS_TEST = True
 
-def test_imaging(fg_cls):
+import logging
+logger = logging.getLogger("21CMMC")
+logger.setLevel(logging.DEBUG)
+
+
+def test_imaging(core_ss):
     """
     The idea of this test is to take a sky with a single source on it, sample onto baselines, then grid and
     reconstruct the image. It is a test of the all-round process of sampling/gridding.
     """
 
-    core_ss = fg_cls(frequencies=np.array([149., 151.0]))
     core_instr = CoreInstrumental(
         freq_min=150.0,
         freq_max=150.1,
         nfreq=2,
+        n_cells=300,
+        sky_extent=3,
         antenna_posfile='grid_centres',
         Tsys=0
     )
@@ -43,46 +49,45 @@ def test_imaging(fg_cls):
     if not RUNNING_AS_TEST:
         fig, ax = plt.subplots(2, 2, figsize=(12, 12))
 
-        mp = ax[0, 0].imshow(ctx.get("foregrounds")[0].brightness_temp[:, :, 0].T, origin='lower',
-                             extent=(0, core_ss.user_params.BOX_LEN)*2)
+        mp = ax[0, 0].imshow(ctx.get("foregrounds")[0][:, :, 0].T, origin='lower',
+                             extent=(-core_ss.sky_size/2, core_ss.sky_size/2)*2)
         ax[0, 0].set_title("Original foregrounds")
         cbar = plt.colorbar(mp, ax=ax[0, 0])
         ax[0, 0].set_xlabel("x [Mpc]")
         ax[0, 0].set_ylabel("y [Mpc]")
         cbar.set_label("Brightness Temp. [K]")
 
-        mp = ax[1, 0].imshow(
+        mp = ax[0, 1].imshow(
             ctx.get("new_sky")[:, :, 0].T, origin='lower',
-            extent=(core_instr.sky_coords.min(), core_instr.sky_coords.max(),)*2
+            extent=(-core_instr.sky_size/2, core_instr.sky_size/2)*2
         )
-        ax[1, 0].set_title("Stitched/Coarsened Foregrounds")
-        cbar = plt.colorbar(mp, ax=ax[1, 0])
-        ax[1, 0].set_xlabel("l")
-        ax[1, 0].set_ylabel("m")
-        cbar.set_label("Brightness Temp. [K]")
-
-        mp = ax[0, 1].imshow(np.abs(image_plane).T, origin='lower',
-                             extent=(image_grid[0].min(), image_grid[0].max(),) * 2)
-        ax[0, 1].set_title("Imaged foregrounds")
+        ax[0, 1].set_title("Tiled+Beam Foregrounds")
         cbar = plt.colorbar(mp, ax=ax[0, 1])
         ax[0, 1].set_xlabel("l")
         ax[0, 1].set_ylabel("m")
-        cbar.set_label("Flux Density. [Jy]")
+        cbar.set_label("Brightness Temp. [K]")
 
-        attenuation = core_instr.beam(core_instr.sim_frequencies)
-        beam_sky = core_instr.conversion_factor_K_to_Jy(core_instr.sim_frequencies,
-                                                        core_instr.beam_area(core_instr.sim_frequencies)) * attenuation
+        mp = ax[1, 0].imshow(
+            np.real(visgrid[:, :, 0].T), origin='lower',
+            extent=(ugrid.min(), ugrid.max()) * 2
+        )
+        ax[1, 0].set_title("Gridded Vis")
+        cbar = plt.colorbar(mp, ax=ax[1, 0])
+        ax[1, 0].set_xlabel("u")
+        ax[1, 0].set_ylabel("v")
+        cbar.set_label("Jy")
 
-        mp = ax[1, 1].imshow(ctx.get("new_sky")[:, :, 0].T * beam_sky[:, :, 0].T, origin='lower', extent=(
-        core_instr.sky_coords.min(), core_instr.sky_coords.max(), core_instr.sky_coords.min(),
-        core_instr.sky_coords.max()))
-        ax[1, 1].set_title("Stitched/Coarsened+Beam Foregrounds")
+        mp = ax[1, 1].imshow(np.abs(image_plane).T, origin='lower',
+                             extent=(image_grid[0].min(), image_grid[0].max(),) * 2)
+        ax[1, 1].set_title("Imaged foregrounds")
         cbar = plt.colorbar(mp, ax=ax[1, 1])
         ax[1, 1].set_xlabel("l")
         ax[1, 1].set_ylabel("m")
         cbar.set_label("Flux Density. [Jy]")
 
-        plt.savefig("test_imaging_%s.png"%fg_cls.__name__)
+        plt.tight_layout()
+
+        plt.savefig("test_imaging_%s.png"%core_ss.__class__.__name__)
         plt.clf()
 
 
@@ -94,14 +99,11 @@ def test_imaging_single_source():
             Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
             model.
             """
-            sky = np.zeros((self.user_params.HII_DIM, self.user_params.HII_DIM, len(self.frequencies)))
-            sky[self.user_params.HII_DIM // 2, self.user_params.HII_DIM // 2] = 1.0
+            sky = np.zeros((self.n_cells, self.n_cells, len(self.frequencies)))
+            sky[self.n_cells// 2, self.n_cells // 2] = 1.0
             return sky
 
-    SingleSource.defaults['box_len'] = 10000
-    SingleSource.defaults['sky_cells'] = 500
-
-    test_imaging(SingleSource)
+    test_imaging(SingleSource())
 
 
 def test_imaging_source_line():
@@ -112,14 +114,11 @@ def test_imaging_source_line():
             Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
             model.
             """
-            sky = np.zeros((self.user_params.HII_DIM, self.user_params.HII_DIM, len(self.frequencies)))
-            sky[self.user_params.HII_DIM // 2] = 1.0
+            sky = np.zeros((self.n_cells, self.n_cells, len(self.frequencies)))
+            sky[self.n_cells // 2] = 1.0
             return sky
 
-    SourceLine.defaults['box_len'] = 10000
-    SourceLine.defaults['sky_cells'] = 500
-
-    test_imaging(SourceLine)
+    test_imaging(SourceLine())
 
 
 def test_imaging_source_ring():
@@ -130,26 +129,42 @@ def test_imaging_source_ring():
             Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
             model.
             """
-            sky = []
+            sky = np.zeros((self.n_cells, self.n_cells, len(self.frequencies)))
 
             for i in range(len(self.frequencies)):
-                inds = np.arange(-self.user_params.HII_DIM / 2, self.user_params.HII_DIM / 2)
-                print(len(inds), self.user_params.HII_DIM)
+                inds = np.arange(-self.n_cells / 2, self.n_cells / 2)
                 ind_mag = np.add.outer(inds**2, inds**2)
 
                 thissky = np.zeros(ind_mag.shape)
                 thissky[np.logical_and(ind_mag>150, ind_mag<200)] = 1
-                sky.append(thissky)
-#            sky[self.user_params.HII_DIM // 2] = 1.0
-            return np.array(sky).T
+                sky[:,:,i] = thissky
 
-    SourceRing.defaults['box_len'] = 10000
-    SourceRing.defaults['sky_cells'] = 500
+            return sky
 
-    test_imaging(SourceRing)
+    test_imaging(SourceRing())
+
+
+def test_imaging_gaussian():
+    # Make a new foregrounds class that will create a sky that has a single source at zenith on it.
+    class Gaussian(ForegroundsBase):
+        def build_sky(self):
+            """
+            Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
+            model.
+            """
+            sky = np.zeros((self.n_cells, self.n_cells, len(self.frequencies)))
+
+            for i in range(len(self.frequencies)):
+                thissky = np.exp(-np.add.outer(self.sky_coords**2, self.sky_coords**2)/ (2 *0.1**2))
+                sky[:,:,i] = thissky
+
+            return sky
+
+    test_imaging(Gaussian())
 
 if __name__ == "__main__":
     RUNNING_AS_TEST = False
     test_imaging_single_source()
     test_imaging_source_line()
     test_imaging_source_ring()
+    test_imaging_gaussian()
