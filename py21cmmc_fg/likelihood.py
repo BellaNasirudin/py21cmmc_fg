@@ -18,6 +18,9 @@ from scipy.sparse import block_diag
 
 from .util import lognormpdf
 
+from scipy.integrate import quad
+from scipy.special import erf
+
 import logging
 logger = logging.getLogger("21CMMC")
 
@@ -350,10 +353,19 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Only save the mean/cov if we have foregrounds, and they don't update every iteration (otherwise, get them
         # every iter).
         if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
-            mean, covariance = self.numerical_covariance(
+#            mean, covariance = self.numerical_covariance(
+#                model[0]['baselines'], model[0]['frequencies'],
+#                nrealisations=self.nrealisations
+#            )
+            print("DOING THIS ANALYTICAL THING")
+            mean = self.numerical_covariance(
                 model[0]['baselines'], model[0]['frequencies'],
                 nrealisations=self.nrealisations
-            )
+            )[0]
+            print("UV IS ", model[0]["u_eta"])
+            print("ETA IS ", model[0]["u_eta"][-1])
+            print(np.median(model[0]["frequencies"]))
+            covariance = self.analytical_covariance(model[0]["u_eta"][0], model[0]["u_eta"][-1], np.median(model[0]["frequencies"]), model[0]["frequencies"].max()-model[0]["frequencies"].min())
         else:
             # Only need thermal variance if we don't have foregrounds, otherwise it will be embedded in the
             # above foreground covariance
@@ -448,7 +460,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return cov
 
-    def numerical_covariance(self, baselines, frequencies, params={}, nrealisations=200):
+    def numerical_covariance(self, baselines, frequencies, params={}, nrealisations=200, cov = None):
         """
         Calculate the covariance of the foregrounds.
     
@@ -490,12 +502,87 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         mean += np.mean(p, axis=0)
 
         # Note, this covariance *already* has thermal noise built in.
-        if nrealisations > 1:
+        if nrealisations > 1 and cov is not None:
             cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
         else:
             cov = 0
             
         return mean, cov
+    
+    @staticmethod
+    def analytical_covariance(uv, eta, nu_mid, bwidth, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, D = 4.0, gamma=0.8, f0=150e6):
+        """
+        from Cath's derivation: https://www.overleaf.com/3815868784cbgxmpzpphxm
+        
+        assumes:
+            1. Gaussian beam
+            2. Blackman-Harris taper
+            3. S_max is 1 Jy
+            
+        Parameters
+        ----------
+        uv    : array
+            The range of u,v's in Fourier space (sr^-1).
+        eta   : array
+            The range of eta in Fourier space (Hz^-1).
+        nu_mid: float
+            The central band frequency (Hz).
+        bwidth: float
+            The bandwidth (Hz).
+        S_min : float, optional
+            The minimum flux density of point sources in the simulation (Jy).
+        S_max : float, optional
+            The maximum flux density of point sources in the simulation, representing the 'peeling limit' (Jy)
+        alpha : float, optional
+            The normalisation coefficient of the source counts (sr^-1 Jy^-1).
+        beta : float, optional
+            The power-law index of source counts.
+        D     : float, optional
+            The physical diameter of the tiles, in metres.
+        gamma : float, optional
+            The power-law index of the spectral energy distribution of sources (assumed universal).
+        f0    : float, optional
+            The reference frequency, at which the other parameters are defined, in Hz.
+        
+        Returns
+        -------
+        cov   : (n_eta, n_eta)-array in a n_uv list
+            The analytical covariance of the power spectrum over uv.
+        
+        """
+        sigma = bwidth / 7
+        
+        cov = []
+        
+        for ii in range(len(uv)):
+            
+            x = lambda u: u * const.c.value / nu_mid
+            
+            #we only need the covariance of u with itself, so x1=x2
+            C = 2 * sigma**2 * (2 * x(uv[ii])**2 ) / const.c.value**2 
+            
+            std_dev = const.c.value * eta / D            
+            print(C, std_dev)            
+            A = 1 / std_dev**2 + C
+            
+            # all combination of eta
+            cov_uv = np.zeros((len(eta),len(eta)))
+            
+            for jj in range(len(eta)):
+                
+                avg_S2 = quad(lambda S: S**2 * alpha * (S**2 * (eta[jj] * f0) ** (gamma))** (-beta) * alpha / (3 + beta) * S **(3+ beta), S_min, S_max)[0]
+                            
+                B = 4 * sigma**2 * (x(uv[ii]) * (eta + eta[jj]) ) / const.c.value
+                
+                cov_eta = avg_S2 * np.sqrt(np.pi/(4 * A)) * np.exp(-2 * sigma**2 * (eta**2 + eta[jj]**2)) * np.exp(B**2 / (4 * A)) * ( erf((B + 2 * A)/(np.sqrt(2) * A)) - erf((B - 2 * A)/(np.sqrt(2) * A)))
+                
+                cov_uv[jj,:] = cov_eta
+                cov_uv[:, jj] = cov_eta
+                
+            cov.append(cov_uv)
+            
+        return cov
+        
     
     def compute_power(self, visibilities, baselines, frequencies):
         """
