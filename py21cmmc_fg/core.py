@@ -510,7 +510,7 @@ class CoreInstrumental(CoreBase):
             self._base_module.cosmo_params.cosmo
         )
 
-    def simulate_data(self, ctx):
+    def _simulate_data(self, ctx):
         """
         Generate a set of realistic visibilities (i.e. the output we expect from an interferometer) and add it to the
         context. Also, add the linear frequencies of the observation to the context.
@@ -532,6 +532,23 @@ class CoreInstrumental(CoreBase):
 
         total_brightness = self.stitch_and_coarsen(total_brightness)
         vis = self.add_instrument(total_brightness)
+        return vis, total_brightness
+
+    def simulate_data(self, ctx):
+        vis, total_brightness = self._simulate_data(ctx)
+
+        # Add thermal noise using the mean beam area
+        vis = self.add_thermal_noise(vis)
+
+        ctx.add("visibilities", vis)
+        ctx.add("baselines", self.baselines.value)
+        ctx.add("frequencies", self.instrumental_frequencies)
+        ctx.add("new_sky", total_brightness)
+
+    def __call__(self, ctx):
+        vis, total_brightness = self._simulate_data(ctx)
+
+        # Don't add thermal noise on each MCMC iter!!
 
         ctx.add("visibilities", vis)
         ctx.add("baselines", self.baselines.value)
@@ -564,8 +581,6 @@ class CoreInstrumental(CoreBase):
 
         visibilities = self.interpolate_frequencies(visibilities, self.sim_frequencies, self.instrumental_frequencies)
 
-        # Add thermal noise using the mean beam area
-        visibilities = self.add_thermal_noise(visibilities)
 
         return visibilities
 
