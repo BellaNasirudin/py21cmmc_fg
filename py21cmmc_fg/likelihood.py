@@ -233,7 +233,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
 
     def __init__(self, n_uv=None, n_ubins=30, umax = None, frequency_taper=np.blackman, nrealisations = 100,
-                 model_uncertainty = 0.15, eta_min = 0, use_analytical_noise=False, **kwargs):
+                 model_uncertainty = 0.15, eta_min = 0, use_analytical_noise=True, **kwargs):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
 
@@ -365,7 +365,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     nrealisations=self.nrealisations
                 )
             else:
-                logger.DEBUG("DOING THIS ANALYTICAL THING")
+                logger.debug("DOING THIS ANALYTICAL THING")
 
                 # Still getting mean numerically for now...
                 mean = self.numerical_covariance(
@@ -416,7 +416,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
     @cached_property
     def _lightcone_core(self):
-        for m in self._cores:
+        for m in self.LikelihoodComputationChain.getCoreModules():
             if isinstance(m, CoreLightConeModule):
                 return m
 
@@ -425,13 +425,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
     @property
     def _instr_core(self):
-        for m in self._cores:
+        for m in self.LikelihoodComputationChain.getCoreModules():
             if isinstance(m, CoreInstrumental):
                 return m
 
     @property
     def foreground_cores(self):
-        return [m for m in self._cores if isinstance(m, ForegroundsBase)]
+        return [m for m in self.LikelihoodComputationChain.getCoreModules() if isinstance(m, ForegroundsBase)]
 
     def get_thermal_variance(self, weights):
         """
