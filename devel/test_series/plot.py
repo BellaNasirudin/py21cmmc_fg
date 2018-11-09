@@ -9,7 +9,7 @@ from py21cmmc.mcmc import analyse
 import sys
 
 try:
-    model_name = "InstrumentalGridTestNoisePSFG" #sys.argv[1]
+    model_name = sys.argv[1] # Don't change this, it allows you to pass a model name at the command line, eg "python plot.py InstrumentalGridTestNoise"
 except IndexError:
     raise ValueError("Please give a model name as the only argument")
 

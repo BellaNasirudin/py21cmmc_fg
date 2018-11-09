@@ -48,8 +48,11 @@ else:
     n_cells = 500
 
 # Likelihood options
-n_ubins = 21
-umax = 290
+if DEBUG:
+    n_ubins = 21
+else:
+    n_ubins = 40
+
 taper = np.blackman
 
 
@@ -92,6 +95,14 @@ class CustomLikelihood(LikelihoodInstrumental2D):
         super().__init__(n_ubins=n_ubins, umax=umax, frequency_taper=frequency_taper,
                          simulate=True,
                          **kwargs)
+
+    def store(self, model, storage):
+        """Store stuff"""
+        storage['signal'] = model[0]['p_signal']
+
+        # Add a "number of sigma" entry
+        var = np.array([np.diag(p) for p in self.noise['covariance']])
+        storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal'])/np.sqrt(var)
 
 
 def run_mcmc(*args, model_name, params=params, **kwargs):

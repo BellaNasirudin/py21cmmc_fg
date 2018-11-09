@@ -569,7 +569,6 @@ class CoreInstrumental(CoreBase):
         if box_size != self.sky_size or len(box) != self.n_cells:
             box = self.stitch_and_coarsen(box, box_size)
 
-        print("NEW BOX SIZE: ", box.shape)
         # Convert to Jy
         box *= self.conversion_factor_K_to_Jy(self.instrumental_frequencies, self.beam_area(self.instrumental_frequencies))
 
@@ -644,6 +643,7 @@ class CoreInstrumental(CoreBase):
         # Fourier Transform over the (u,v) dimension and baselines sampling
         visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
 
+        print("UVCOORDS: ", uv[0].min(), uv[0].max())
         return visibilities
 
     def sigma(self, frequencies):
@@ -748,12 +748,9 @@ class CoreInstrumental(CoreBase):
         """
         logger.info("Converting to UV space...")
         t1 = time.time()
-        print(L)
-        print(sky.min(), sky.max(), np.mean(sky))
         np.save("derpa", sky)
         ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
         logger.info("... took %s sec." % (time.time() - t1))
-        print(np.real(ft).min(), np.real(ft).max())
         return ft, uv_scale
 
     @staticmethod

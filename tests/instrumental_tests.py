@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 RUNNING_AS_TEST = True
 
 import logging
+
 logger = logging.getLogger("21CMMC")
 logger.setLevel(logging.DEBUG)
 
@@ -44,22 +45,30 @@ def test_imaging(core_ss):
     ugrid, visgrid, weights = lk.grid_visibilities(ctx.get("visibilities"), ctx.get("baselines"),
                                                    ctx.get("frequencies"), lk.n_uv, lk.umax)
 
+    print("GRIDDED UV: ", ugrid.min(), ugrid.max())
+    # Do a direct FT there and back, rather than baselines.
+    direct_vis, direct_u = fft(ctx.get("new_sky")[:, :, 0], L=core_instr.sky_size, a=0, b=2 * np.pi)
+    direct_img, direct_l = fft(direct_vis, Lk=(ugrid[1] - ugrid[0]) * len(ugrid), a=0, b=2 * np.pi)
+
+    # Get the reconstructed image
     image_plane, image_grid = ifft(visgrid[:, :, 0], Lk=(ugrid[1] - ugrid[0]) * len(ugrid), a=0, b=2 * np.pi)
 
     if not RUNNING_AS_TEST:
-        fig, ax = plt.subplots(2, 2, figsize=(12, 12))
+        fig, ax = plt.subplots(2, 4, figsize=(12, 6))
 
+        # Show original Sky (before Beam)
         mp = ax[0, 0].imshow(ctx.get("foregrounds")[0][:, :, 0].T, origin='lower',
-                             extent=(-core_ss.sky_size/2, core_ss.sky_size/2)*2)
+                             extent=(-core_ss.sky_size / 2, core_ss.sky_size / 2) * 2)
         ax[0, 0].set_title("Original foregrounds")
         cbar = plt.colorbar(mp, ax=ax[0, 0])
         ax[0, 0].set_xlabel("x [Mpc]")
         ax[0, 0].set_ylabel("y [Mpc]")
         cbar.set_label("Brightness Temp. [K]")
 
+        # Show tiled (if applicable) and attenuated sky
         mp = ax[0, 1].imshow(
             ctx.get("new_sky")[:, :, 0].T, origin='lower',
-            extent=(-core_instr.sky_size/2, core_instr.sky_size/2)*2
+            extent=(-core_instr.sky_size / 2, core_instr.sky_size / 2) * 2
         )
         ax[0, 1].set_title("Tiled+Beam Foregrounds")
         cbar = plt.colorbar(mp, ax=ax[0, 1])
@@ -67,27 +76,70 @@ def test_imaging(core_ss):
         ax[0, 1].set_ylabel("m")
         cbar.set_label("Brightness Temp. [K]")
 
-        mp = ax[1, 0].imshow(
+        # Show UV weights
+        mp = ax[0, 2].imshow(
+            weights[:, :, 0].T, origin='lower',
+            extent=(ugrid.min(), ugrid.max()) * 2
+        )
+        ax[0, 2].set_title("UV weights")
+        cbar = plt.colorbar(mp, ax=ax[0, 2])
+        ax[0, 2].set_xlabel("u")
+        ax[0, 2].set_ylabel("v")
+        cbar.set_label("Weight")
+
+        # Show raw visibilities
+        wvlength = 3e8 / ctx.get("frequencies")[0]
+        mp = ax[0, 3].scatter(ctx.get("baselines")[:, 0] / wvlength, ctx.get("baselines")[:, 1] / wvlength,
+                              c=np.real(ctx.get("visibilities")[:, 0]))
+
+        cbar = plt.colorbar(mp, ax=ax[0, 3])
+        ax[0, 3].set_xlabel("u")
+        ax[0, 3].set_xlabel("v")
+        cbar.set_label("Re[Vis] [Jy?]")
+
+        # Show Gridded Visibilities
+        mp = ax[1, 3].imshow(
             np.real(visgrid[:, :, 0].T), origin='lower',
             extent=(ugrid.min(), ugrid.max()) * 2
         )
-        ax[1, 0].set_title("Gridded Vis")
-        cbar = plt.colorbar(mp, ax=ax[1, 0])
-        ax[1, 0].set_xlabel("u")
-        ax[1, 0].set_ylabel("v")
+        ax[1, 3].set_title("Gridded Vis")
+        cbar = plt.colorbar(mp, ax=ax[1, 3])
+        ax[1, 3].set_xlabel("u")
+        ax[1, 3].set_ylabel("v")
         cbar.set_label("Jy")
 
+        # Show directly-calculated UV plane
+        mp = ax[1, 2].imshow(
+            np.real(direct_vis), origin='lower',
+            extent=(direct_u[0].min(), direct_u[0].max()) * 2
+        )
+        ax[1, 2].set_title("Direct Vis")
+        cbar = plt.colorbar(mp, ax=ax[1, 2])
+        ax[1, 2].set_xlabel("u")
+        ax[1, 2].set_ylabel("v")
+        cbar.set_label("Jy")
+
+        # Show final "image"
         mp = ax[1, 1].imshow(np.abs(image_plane).T, origin='lower',
                              extent=(image_grid[0].min(), image_grid[0].max(),) * 2)
-        ax[1, 1].set_title("Imaged foregrounds")
+        ax[1, 1].set_title("Recon. foregrounds")
         cbar = plt.colorbar(mp, ax=ax[1, 1])
         ax[1, 1].set_xlabel("l")
         ax[1, 1].set_ylabel("m")
         cbar.set_label("Flux Density. [Jy]")
 
+        # Show direct reconstruction
+        mp = ax[1, 0].imshow(np.abs(direct_img).T, origin='lower',
+                             extent=(direct_l[0].min(), direct_l[0].max(),) * 2)
+        ax[1, 0].set_title("Recon. direct foregrounds")
+        cbar = plt.colorbar(mp, ax=ax[1, 0])
+        ax[1, 0].set_xlabel("l")
+        ax[1, 0].set_ylabel("m")
+        cbar.set_label("Flux Density. [Jy]")
+
         plt.tight_layout()
 
-        plt.savefig("test_imaging_%s.png"%core_ss.__class__.__name__)
+        plt.savefig("test_imaging_%s.png" % core_ss.__class__.__name__)
         plt.clf()
 
 
@@ -100,7 +152,7 @@ def test_imaging_single_source():
             model.
             """
             sky = np.zeros((self.n_cells, self.n_cells, len(self.frequencies)))
-            sky[self.n_cells// 2, self.n_cells // 2] = 1.0
+            sky[self.n_cells // 2, self.n_cells // 2] = 1.0
             return sky
 
     test_imaging(SingleSource())
@@ -133,11 +185,11 @@ def test_imaging_source_ring():
 
             for i in range(len(self.frequencies)):
                 inds = np.arange(-self.n_cells / 2, self.n_cells / 2)
-                ind_mag = np.add.outer(inds**2, inds**2)
+                ind_mag = np.add.outer(inds ** 2, inds ** 2)
 
                 thissky = np.zeros(ind_mag.shape)
-                thissky[np.logical_and(ind_mag>150, ind_mag<200)] = 1
-                sky[:,:,i] = thissky
+                thissky[np.logical_and(ind_mag > 150, ind_mag < 200)] = 1
+                sky[:, :, i] = thissky
 
             return sky
 
@@ -155,12 +207,13 @@ def test_imaging_gaussian():
             sky = np.zeros((self.n_cells, self.n_cells, len(self.frequencies)))
 
             for i in range(len(self.frequencies)):
-                thissky = np.exp(-np.add.outer(self.sky_coords**2, self.sky_coords**2)/ (2 *0.1**2))
-                sky[:,:,i] = thissky
+                thissky = np.exp(-np.add.outer(self.sky_coords ** 2, self.sky_coords ** 2) / (2 * 0.1 ** 2))
+                sky[:, :, i] = thissky
 
             return sky
 
     test_imaging(Gaussian())
+
 
 if __name__ == "__main__":
     RUNNING_AS_TEST = False

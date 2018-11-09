@@ -618,7 +618,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         # Compute 2D power.
         ugrid, visgrid, weights = self.grid_visibilities(visibilities, baselines, frequencies, self.n_uv, self.umax)
- 
+
+
         visgrid, eta = self.frequency_fft(visgrid, frequencies, taper=self.frequency_taper)
        
         # Ensure weights correspond to FT.
@@ -719,8 +720,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         if umax is None:
             umax = (max([np.abs(b).max() for b in baselines]) * frequencies.max()/const.c).value
-
-        print(ngrid, umax, baselines.min(), baselines.max())
 
         ugrid = np.linspace(-umax, umax, ngrid+1) # +1 because these are bin edges.
         visgrid = np.zeros((ngrid, ngrid, len(frequencies)), dtype=np.complex128)
