@@ -636,8 +636,8 @@ class CoreInstrumental(CoreBase):
         if self.baselines is None:
             self.baselines = np.zeros((len(uv[0]) ** 2, 2))
             U, V = np.meshgrid(uv[0], uv[1])
-            self.baselines[:, 0] = U.flatten() * (const.c / np.mean(self.instrumental_frequencies))
-            self.baselines[:, 1] = V.flatten() * (const.c / np.mean(self.instrumental_frequencies))
+            self.baselines[:, 0] = U.flatten() * (const.c / np.min(self.instrumental_frequencies))
+            self.baselines[:, 1] = V.flatten() * (const.c / np.min(self.instrumental_frequencies))
             self.baselines = self.baselines * un.m
 
         # Fourier Transform over the (u,v) dimension and baselines sampling
@@ -780,6 +780,7 @@ class CoreInstrumental(CoreBase):
              The visibilities defined at each baseline.
 
         """
+
         vis = np.zeros((len(baselines), len(frequencies)), dtype=np.complex128)
 
         frequencies = frequencies / un.s
@@ -803,7 +804,7 @@ class CoreInstrumental(CoreBase):
             FT_imag = f_imag(arr)
 
             vis[:, i] = FT_real + FT_imag * 1j
-
+        
         logger.info("... took %s sec." % (time.time() - t1))
         return vis
 

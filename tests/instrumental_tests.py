@@ -48,7 +48,7 @@ def test_imaging(core_ss):
     print("GRIDDED UV: ", ugrid.min(), ugrid.max())
     # Do a direct FT there and back, rather than baselines.
     direct_vis, direct_u = fft(ctx.get("new_sky")[:, :, 0], L=core_instr.sky_size, a=0, b=2 * np.pi)
-    direct_img, direct_l = fft(direct_vis, Lk=(ugrid[1] - ugrid[0]) * len(ugrid), a=0, b=2 * np.pi)
+    direct_img, direct_l = ifft(direct_vis, Lk=(ugrid[1] - ugrid[0]) * len(ugrid), a=0, b=2 * np.pi)
 
     # Get the reconstructed image
     image_plane, image_grid = ifft(visgrid[:, :, 0], Lk=(ugrid[1] - ugrid[0]) * len(ugrid), a=0, b=2 * np.pi)

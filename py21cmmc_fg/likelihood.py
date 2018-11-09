@@ -416,7 +416,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
     @cached_property
     def _lightcone_core(self):
-        for m in self.LikelihoodComputationChain.getCoreModules():
+        for m in self._cores:
             if isinstance(m, CoreLightConeModule):
                 return m
 
@@ -425,13 +425,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
     @property
     def _instr_core(self):
-        for m in self.LikelihoodComputationChain.getCoreModules():
+        for m in self._cores:
             if isinstance(m, CoreInstrumental):
                 return m
 
     @property
     def foreground_cores(self):
-        return [m for m in self.LikelihoodComputationChain.getCoreModules() if isinstance(m, ForegroundsBase)]
+        return [m for m in self._cores if isinstance(m, ForegroundsBase)]
 
     def get_thermal_variance(self, weights):
         """
@@ -576,7 +576,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             C = 2 * sigma**2 * (2 * x(uv[ii])**2 ) / const.c.value**2 
             
             std_dev = const.c.value * eta / D            
-            print(C, std_dev)            
+                        
             A = 1 / std_dev**2 + C
             
             # all combination of eta
@@ -719,9 +719,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             The weights of the visibility grid (i.e. how many baselines contributed to each).
         """
         if umax is None:
-            umax = (max([np.abs(b).max() for b in baselines]) * frequencies.max()/const.c).value
-
-        ugrid = np.linspace(-umax, umax, ngrid+1) # +1 because these are bin edges.
+            umax = (max([np.abs(b).max() for b in baselines]) * frequencies.min()/const.c).value
+        
+        ugrid = np.linspace(-umax-np.diff((baselines[:, 0] * frequencies.min() / const.c).value)[0], umax, ngrid+1) # +1 because these are bin edges.
         visgrid = np.zeros((ngrid, ngrid, len(frequencies)), dtype=np.complex128)
         weights = np.zeros((ngrid, ngrid, len(frequencies)))
         
