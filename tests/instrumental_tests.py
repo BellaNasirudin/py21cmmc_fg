@@ -18,7 +18,8 @@ import logging
 logger = logging.getLogger("21CMMC")
 logger.setLevel(logging.DEBUG)
 
-def test_imaging(core_ss):
+
+def test_imaging_grid(core_ss):
     """
     The idea of this test is to take a sky with a single source on it, sample onto baselines, then grid and
     reconstruct the image. It is a test of the all-round process of sampling/gridding.
@@ -54,7 +55,7 @@ def test_imaging_single_source():
             sky[self.n_cells // 2, self.n_cells // 2] = 1.0
             return sky
 
-    test_imaging(SingleSource())
+    test_imaging_grid(SingleSource())
 
 
 def test_imaging_source_line():
@@ -69,7 +70,7 @@ def test_imaging_source_line():
             sky[self.n_cells // 2] = 1.0
             return sky
 
-    test_imaging(SourceLine())
+    test_imaging_grid(SourceLine())
 
 
 def test_imaging_source_ring():
@@ -92,7 +93,7 @@ def test_imaging_source_ring():
 
             return sky
 
-    test_imaging(SourceRing())
+    test_imaging_grid(SourceRing())
 
 
 def test_imaging_gaussian():
@@ -111,12 +112,36 @@ def test_imaging_gaussian():
 
             return sky
 
-    test_imaging(Gaussian())
+    test_imaging_grid(Gaussian())
+
+
+def test_imaging_sin_tiled_not_coarsened():
+    # Make a new foregrounds class that will create a sky that has a single source at zenith on it.
+    class Sine(ForegroundsBase):
+        def build_sky(self):
+            """
+            Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
+            model.
+            """
+            sky = np.zeros((self.n_cells, self.n_cells, len(self.frequencies)))
+
+            l = np.arange(self.n_cells)
+            L, M = np.meshgrid(l,l)
+
+            for i in range(len(self.frequencies)):
+                thissky = np.sin((L*2 + 3*M)*2*np.pi/self.n_cells) + 1
+                sky[:, :, i] = thissky
+
+            return sky
+
+    test_imaging_grid(Sine(sky_size=0.6, n_cells=150))
+
 
 
 if __name__ == "__main__":
     RUNNING_AS_TEST = False
-    test_imaging_single_source()
-    test_imaging_source_line()
-    test_imaging_source_ring()
-    test_imaging_gaussian()
+    #test_imaging_single_source()
+    #test_imaging_source_line()
+    #test_imaging_source_ring()
+    #test_imaging_gaussian()
+    test_imaging_sin_tiled_not_coarsened()
