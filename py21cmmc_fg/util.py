@@ -48,8 +48,6 @@ def lognormpdf(x, mu, cov):
     norm_coeff = nx * np.log(2 * np.pi) + logdet_block_matrix(cov)
 
     err = x - mu
-
-    print("SHAPE: ", err.shape, cov[0].shape)
     sol, inds = solve_block_matrix(cov, err)
 
     # The "inds" here means we only use the u co-ordinates that had a solution to the covariance.

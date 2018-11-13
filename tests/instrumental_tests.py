@@ -4,7 +4,7 @@ Some tests of the instrumental core/likelihood.
 
 from py21cmmc_fg.core import CoreInstrumental, ForegroundsBase
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
-from py21cmmc.mcmc import build_computation_chain
+from py21cmmc_fg.diagnostics import imaging
 import numpy as np
 
 from powerbox.dft import fft, ifft
@@ -17,7 +17,6 @@ import logging
 
 logger = logging.getLogger("21CMMC")
 logger.setLevel(logging.DEBUG)
-
 
 def test_imaging(core_ss):
     """
@@ -37,110 +36,10 @@ def test_imaging(core_ss):
 
     lk = LikelihoodInstrumental2D(use_data=False)
 
-    chain = build_computation_chain([core_ss, core_instr], lk)
-    chain.setup()
+    fig = imaging(cores=[core_ss, core_instr], likelihood=lk)
 
-    ctx = chain.core_simulated_context()
-
-    ugrid, visgrid, weights = lk.grid_visibilities(ctx.get("visibilities"), ctx.get("baselines"),
-                                                   ctx.get("frequencies"), lk.n_uv, lk.umax)
-
-    print("GRIDDED UV: ", ugrid.min(), ugrid.max())
-    # Do a direct FT there and back, rather than baselines.
-    direct_vis, direct_u = fft(ctx.get("new_sky")[:, :, 0], L=core_instr.sky_size, a=0, b=2 * np.pi)
-    direct_img, direct_l = ifft(direct_vis, Lk=(ugrid[1] - ugrid[0]) * len(ugrid), a=0, b=2 * np.pi)
-
-    # Get the reconstructed image
-    image_plane, image_grid = ifft(visgrid[:, :, 0], Lk=(ugrid[1] - ugrid[0]) * len(ugrid), a=0, b=2 * np.pi)
-
-    if not RUNNING_AS_TEST:
-        fig, ax = plt.subplots(2, 4, figsize=(12, 6))
-
-        # Show original Sky (before Beam)
-        mp = ax[0, 0].imshow(ctx.get("foregrounds")[0][:, :, 0].T, origin='lower',
-                             extent=(-core_ss.sky_size / 2, core_ss.sky_size / 2) * 2)
-        ax[0, 0].set_title("Original foregrounds")
-        cbar = plt.colorbar(mp, ax=ax[0, 0])
-        ax[0, 0].set_xlabel("x [Mpc]")
-        ax[0, 0].set_ylabel("y [Mpc]")
-        cbar.set_label("Brightness Temp. [K]")
-
-        # Show tiled (if applicable) and attenuated sky
-        mp = ax[0, 1].imshow(
-            ctx.get("new_sky")[:, :, 0].T, origin='lower',
-            extent=(-core_instr.sky_size / 2, core_instr.sky_size / 2) * 2
-        )
-        ax[0, 1].set_title("Tiled+Beam Foregrounds")
-        cbar = plt.colorbar(mp, ax=ax[0, 1])
-        ax[0, 1].set_xlabel("l")
-        ax[0, 1].set_ylabel("m")
-        cbar.set_label("Brightness Temp. [K]")
-
-        # Show UV weights
-        mp = ax[0, 2].imshow(
-            weights[:, :, 0].T, origin='lower',
-            extent=(ugrid.min(), ugrid.max()) * 2
-        )
-        ax[0, 2].set_title("UV weights")
-        cbar = plt.colorbar(mp, ax=ax[0, 2])
-        ax[0, 2].set_xlabel("u")
-        ax[0, 2].set_ylabel("v")
-        cbar.set_label("Weight")
-
-        # Show raw visibilities
-        wvlength = 3e8 / ctx.get("frequencies")[0]
-        mp = ax[0, 3].scatter(ctx.get("baselines")[:, 0] / wvlength, ctx.get("baselines")[:, 1] / wvlength,
-                              c=np.real(ctx.get("visibilities")[:, 0]))
-
-        cbar = plt.colorbar(mp, ax=ax[0, 3])
-        ax[0, 3].set_xlabel("u")
-        ax[0, 3].set_xlabel("v")
-        cbar.set_label("Re[Vis] [Jy?]")
-
-        # Show Gridded Visibilities
-        mp = ax[1, 3].imshow(
-            np.real(visgrid[:, :, 0].T), origin='lower',
-            extent=(ugrid.min(), ugrid.max()) * 2
-        )
-        ax[1, 3].set_title("Gridded Vis")
-        cbar = plt.colorbar(mp, ax=ax[1, 3])
-        ax[1, 3].set_xlabel("u")
-        ax[1, 3].set_ylabel("v")
-        cbar.set_label("Jy")
-
-        # Show directly-calculated UV plane
-        mp = ax[1, 2].imshow(
-            np.real(direct_vis), origin='lower',
-            extent=(direct_u[0].min(), direct_u[0].max()) * 2
-        )
-        ax[1, 2].set_title("Direct Vis")
-        cbar = plt.colorbar(mp, ax=ax[1, 2])
-        ax[1, 2].set_xlabel("u")
-        ax[1, 2].set_ylabel("v")
-        cbar.set_label("Jy")
-
-        # Show final "image"
-        mp = ax[1, 1].imshow(np.abs(image_plane).T, origin='lower',
-                             extent=(image_grid[0].min(), image_grid[0].max(),) * 2)
-        ax[1, 1].set_title("Recon. foregrounds")
-        cbar = plt.colorbar(mp, ax=ax[1, 1])
-        ax[1, 1].set_xlabel("l")
-        ax[1, 1].set_ylabel("m")
-        cbar.set_label("Flux Density. [Jy]")
-
-        # Show direct reconstruction
-        mp = ax[1, 0].imshow(np.abs(direct_img).T, origin='lower',
-                             extent=(direct_l[0].min(), direct_l[0].max(),) * 2)
-        ax[1, 0].set_title("Recon. direct foregrounds")
-        cbar = plt.colorbar(mp, ax=ax[1, 0])
-        ax[1, 0].set_xlabel("l")
-        ax[1, 0].set_ylabel("m")
-        cbar.set_label("Flux Density. [Jy]")
-
-        plt.tight_layout()
-
-        plt.savefig("test_imaging_%s.png" % core_ss.__class__.__name__)
-        plt.clf()
+    plt.savefig("test_imaging_%s.png" % core_ss.__class__.__name__)
+    plt.clf()
 
 
 def test_imaging_single_source():
