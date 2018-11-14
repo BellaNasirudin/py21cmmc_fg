@@ -25,14 +25,8 @@ likelihood = CustomLikelihood(
     datafile=[f'data/{model_name}.npz']
 )
 
-
 chain = run_mcmc(
     [core_eor, core_instr], likelihood,
     model_name=model_name,   # Filename of main chain output
-    walkersRatio=3 if DEBUG else 18,       # The number of walkers will be walkersRatio*nparams
-    burninIterations=0,                    # Number of iterations to save as burnin. Recommended to leave as zero.
-    sampleIterations=100,                  # Number of iterations to sample, per walker.
-    threadCount=1 if DEBUG else 12,        # Number of processes to use in MCMC (best as a factor of walkersRatio)
-    continue_sampling=False                # Whether to contine sampling from previous run *up to* sampleIterations.
 )
 

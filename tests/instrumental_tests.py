@@ -129,12 +129,12 @@ def test_imaging_sin_tiled_not_coarsened():
             L, M = np.meshgrid(l,l)
 
             for i in range(len(self.frequencies)):
-                thissky = np.sin((L*2 + 3*M)*2*np.pi/self.n_cells) + 1
+                thissky = np.sin((L*2 + 3*M)*2*np.pi/self.n_cells + np.pi/2) + 1
                 sky[:, :, i] = thissky
 
             return sky
 
-    test_imaging_grid(Sine(sky_size=0.6, n_cells=150))
+    test_imaging_grid(Sine(sky_size=0.629565, n_cells=150))
 
 
 

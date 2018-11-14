@@ -95,20 +95,19 @@ void stitch_and_coarsen_sky(int n_sim, int nf, int n_out, double small_sky_size,
         We put all of this in *one* function to save memory and time. In one function, it doesn't have to actually
         *stitch* boxes and therefore use too much memory, it can re-use the same initial box.
 
-        NOTE: at this point, we work directly in linear space, assuming that we can tile each cell and its length
-        adds linearly. This is not technically true, due to wide-field effects (the sizes are in radians). Will
-        have to fix this later.
+        NOTE: the original and final simulations are both assumed to be in (l,m) space, which means they can be tiled
+              linearly. To be useful, the simulation must be periodic in (l,m).
 
         This function takes a box of a given size, and effectively linearly tiles the box in the first two dimensions,
         then places down *larger* cells on top of it, and calculates the average of the hi-res cells within each low-res
-        cell. A cell is deemed to be fully in a cell if its *LEFT EDGE* is in the larger cell, and fully out of the cell
-        otherwise.
+        cell. A cell is deemed to be fully in a (broader) cell if its *LEFT EDGE* is in the larger cell, and fully out
+        of the cell otherwise. The final returned value is the *average* of the input (i.e. the sum divided by the
+        number of cells deemed to be in it -- this is better than averaging by area).
 
-        This could be improved in many ways:
-            1) Use centres instead of left edge,
-            2) Average cells by the amount that they're actually in the larger cell.
-            3) Acknowledge that there are curved-sky effects.
+        The box is tiled starting from the left edge, which should be without loss of generality for a periodic box (but
+        should be kept in mind when comparing input to output).
 
+        This function could be improved by averaging cells by the amount that they're actually in the larger cell.
     */
 
     int j_x, i_x, j_y, i_y, i_f;
@@ -117,17 +116,14 @@ void stitch_and_coarsen_sky(int n_sim, int nf, int n_out, double small_sky_size,
 
 #ifdef DEBUG
     // Check input parameters
-    printf("n_sim: %d, nf: %d, n_out: %d, small_sky_size: %g, big_sky_size: %g\n", n_sim, nf, n_out, small_sky_size, big_sky_size);
+    printf("IN C CODE: n_sim: %d, nf: %d, n_out: %d, small_sky_size: %g, big_sky_size: %g\n", n_sim, nf, n_out, small_sky_size, big_sky_size);
 #endif
 
     // Get the number of cells within a lo-res cell
     dlo = big_sky_size/n_out;
     dhi = small_sky_size/n_sim;
 
-    j_x = 0;
-    j_y = 0;
-
-   for(i_x=0;i_x<n_out;i_x++){ // Go through lo-res box x
+    for(i_x=0;i_x<n_out;i_x++){ // Go through lo-res box x
         xstart = (int) ((i_x*dlo)/dhi);
         xend = (int) (((i_x+1)*dlo)/dhi) + 1;
 

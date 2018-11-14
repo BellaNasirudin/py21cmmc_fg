@@ -513,7 +513,7 @@ class CoreInstrumental(CoreBase):
     def cell_area(self):
         return self.cell_size ** 2
 
-    def mpc_to_rad(self, redshift, cosmo):
+    def rad_to_cmpc(self, redshift, cosmo):
         """
         Conversion factor between Mpc and radians for small angles.
 
@@ -562,7 +562,7 @@ class CoreInstrumental(CoreBase):
         if not np.all(frequencies==self.instrumental_frequencies):
             box = cw.interpolate_map_frequencies(box, frequencies, self.instrumental_frequencies)
 
-        box_size = self.lightcone_core.user_params.BOX_LEN * self.mpc_to_rad(
+        box_size = self.lightcone_core.user_params.BOX_LEN / self.rad_to_cmpc(
             np.mean(self.lightcone_core.lightcone_slice_redshifts), self.lightcone_core.cosmo_params.cosmo)
 
         # If the original simulation does not match the sky grid defined here, stitch and coarsen it
@@ -748,7 +748,6 @@ class CoreInstrumental(CoreBase):
         """
         logger.info("Converting to UV space...")
         t1 = time.time()
-        np.save("derpa", sky)
         ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
         logger.info("... took %s sec." % (time.time() - t1))
         return ft, uv_scale
@@ -807,42 +806,6 @@ class CoreInstrumental(CoreBase):
         
         logger.info("... took %s sec." % (time.time() - t1))
         return vis
-
-    # @staticmethod
-    # def interpolate_frequencies(visibilities, freq_grid, linear_freq):
-    #     """
-    #     Interpolate a set of visibilities from a non-linear grid of frequencies onto a linear grid. Interpolation
-    #     is linear.
-    #
-    #     Parameters
-    #     ----------
-    #     visibilities : complex (n_baselines, n_freq)-array
-    #         The visibilities at each baseline and frequency.
-    #
-    #     freq_grid : (nfreq)-array
-    #         The grid of frequencies at which the visibilities are defined.
-    #
-    #     linear_freq : (N,)-array
-    #         The set of frequencies on which to interpolate the visibilities.
-    #
-    #     Returns
-    #     -------
-    #     new_vis : complex (n_baselines, N)-array
-    #         The interpolated visibilities.
-    #     """
-    #     logger.info("Interpolating frequencies...")
-    #     t1 = time.time()
-    #
-    #     # Make sure the input frequencies are ascending.
-    #     if freq_grid[0] > freq_grid[-1]:
-    #         freq_grid = freq_grid[::-1]
-    #         visibilities = np.flip(visibilities, 1)
-    #
-    #     # USING C Code reduces time by about 200%!!
-    #     out = cw.interpolate_visibility_frequencies(visibilities, freq_grid, linear_freq)
-    #
-    #     logger.info("... took %s sec." % (time.time() - t1))
-    #     return out
 
     @staticmethod
     def get_baselines(x, y):
