@@ -373,9 +373,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     nrealisations=self.nrealisations
                 )[0]
 
-                print("UV IS ", model[0]["u_eta"])
-                print("ETA IS ", model[0]["u_eta"][-1])
-                print(np.median(model[0]["frequencies"]))
                 covariance = self.analytical_covariance(model[0]["u_eta"][0], model[0]["u_eta"][-1], np.median(model[0]["frequencies"]), model[0]["frequencies"].max()-model[0]["frequencies"].min())
 
                 weights = model[0]['weights']
@@ -775,7 +772,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         eta : (nfreq/2)-array
             The eta-coordinates, without negative values.
         """
-        ft, eta =fft(vis*taper(len(freq)), (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)
+        ft, eta = fft(vis*taper(len(freq)), (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)
         
         ft = ft[:,:, (int(len(freq)/2)+1):]
         return ft, eta[0][(int(len(freq)/2)+1):]
