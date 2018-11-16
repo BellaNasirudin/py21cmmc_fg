@@ -84,14 +84,14 @@ class CustomCoreInstrument(CoreInstrumental):
 
 
 class CustomLikelihood(LikelihoodInstrumental2D):
-    def __init__(self, n_ubins=n_ubins, umax=None, frequency_taper=taper, **kwargs):
-        super().__init__(n_ubins=n_ubins, umax=umax, frequency_taper=frequency_taper,
+    def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, **kwargs):
+        super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper,
                          simulate=True,
                          **kwargs)
 
     def store(self, model, storage):
         """Store stuff"""
-        storage['signal'] = model[0]['p_signal']
+        storage['signal'] = model[0]['p_signal'] + self.noise['mean']
 
         # Remember that the variance is actually the variance plus the model uncertainty
         sig_cov = self.get_signal_covariance(model[0]['p_signal'])
@@ -109,7 +109,7 @@ def run_mcmc(*args, model_name, params=params, **kwargs):
         params=params,
         walkersRatio=[18,3,2][DEBUG],       # The number of walkers will be walkersRatio*nparams
         burninIterations=0,                    # Number of iterations to save as burnin. Recommended to leave as zero.
-        sampleIterations=[100, 50, 5][DEBUG],  # Number of iterations to sample, per walker.
+        sampleIterations=[100, 50, 2][DEBUG],  # Number of iterations to sample, per walker.
         threadCount=[12,6,1][DEBUG],        # Number of processes to use in MCMC (best as a factor of walkersRatio)
         continue_sampling=False,                # Whether to contine sampling from previous run *up to* sampleIterations.
         **kwargs

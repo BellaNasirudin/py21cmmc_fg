@@ -19,7 +19,10 @@ figname = "plots/"+model_name+"_{}.png"
 samples = analyse.get_samples(name)
 data = np.load(name+'.npz')
 noise = np.load(name+".noise.npz")
+blobs = samples.get_blobs()
 
+ps_extent = (data['u'].min(), data['u'].max(), data['eta'].min(), data['eta'].max())
+var = np.array([np.diag(c) for c in noise['covariance']])
 
 # Make trace plot
 fig, ax = analyse.trace_plot(samples, include_lnl=True, start_iter=0, thin=1, colored=False, show_guess=True)
@@ -33,49 +36,71 @@ plt.savefig(figname.format("CornerPlot"))
 plt.clf()
 
 
-# Make data power spectrum plot
-plt.figure(figsize=(12,8))
-plt.imshow(np.log10(data['p_signal'].T), origin='lower', extent=(data["u_eta"][0][0], data["u_eta"][0][-1], data["u_eta"][1][0], data["u_eta"][1][-1]))
-plt.xscale("log")
-plt.yscale("log")
-plt.ylabel("$\eta$", fontsize=12)
-plt.xlabel("$\sqrt{u^2+v^2}$", fontsize=12)
-plt.title("EoR Signal")
-plt.colorbar()
-plt.savefig(figname.format("DataPS"))
+# Make 2D Power Spectrum Diagnosis
+fig,ax = plt.subplots(2,3, figsize=(12,6), sharex=True, sharey=True,
+                      subplot_kw={"xscale":"log", "yscale":'log'},
+                     gridspec_kw={"hspace":0.05, "wspace":0.05})
+
+
+im = ax[0,0].imshow(np.log10(data['p_signal'].T), origin='lower',
+           extent=ps_extent)
+plt.colorbar(im, ax=ax[0,0]);
+ax[0,0].set_title("Mock 2D PS")
+
+im = ax[0,1].imshow(np.log10(blobs['signal'][0,0].T), origin='lower',
+           extent=ps_extent)
+plt.colorbar(im, ax=ax[0,1]);
+ax[0,1].set_title("Model 0,0 2D PS")
+
+im = ax[0,2].imshow(np.log10(blobs['signal'][-1,-1].T), origin='lower',
+           extent=ps_extent)
+plt.colorbar(im, ax=ax[0,2]);
+ax[0,2].set_title("Model -1,-1 2D PS")
+
+im = ax[1,0].imshow(np.log10(np.sqrt(var).T), origin='lower', extent=ps_extent)
+plt.colorbar(im, ax=ax[1,0]);
+ax[1,0].set_title("$\sigma$ 0,0")
+
+im = ax[1,1].imshow(blobs['sigma'][0,0].T, origin='lower', extent=ps_extent)
+plt.colorbar(im, ax=ax[1,1]);
+ax[1,1].set_title("#$\sigma$ 0,0")
+
+im = ax[1,2].imshow(blobs['sigma'][-1,-1].T, origin='lower', extent=ps_extent)
+plt.colorbar(im, ax=ax[1,2]);
+ax[1,2].set_title("#$\sigma$ -1,-1")
+
+fig.suptitle("2D Power Spectrum Diagnosis", fontsize=16)
+
+# Add common x,y labels
+fig.add_subplot(111, frameon=False)
+# hide tick and tick label of the big axes
+plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
+plt.xlabel("Perpendicular Scale, $u$", labelpad=15, fontsize=15)
+plt.ylabel("Line-of-Sight Scale, $\eta$", labelpad=15, fontsize=15)
+
+fig.savefig(figname.format("2DPS"))
 plt.clf()
 
-# Make signal-to-noise power spectrum plot
-plt.figure(figsize=(12,8))
-noise_variance = np.array([np.diag(c) for c in noise['covariance']])
-plt.imshow(np.log10(data['p_signal'].T/ noise_variance.T), origin='lower', extent=(data["u_eta"][0][0], data["u_eta"][0][-1], data["u_eta"][1][0], data["u_eta"][1][-1]))
-plt.xscale("log")
-plt.yscale("log")
-plt.ylabel("$\eta$", fontsize=12)
-plt.xlabel("$\sqrt{u^2+v^2}$", fontsize=12)
-plt.title("Signal to Noise Power Spectrum")
-plt.colorbar()
-plt.savefig(figname.format("SignalNoisePS"))
-plt.clf()
 
-# Make noise power spectrum plot
-plt.figure(figsize=(12,8))
-plt.imshow(np.log10(noise_variance.T), origin='lower', extent=(data["u_eta"][0][0], data["u_eta"][0][-1], data["u_eta"][1][0], data["u_eta"][1][-1]))
-plt.xscale("log")
-plt.yscale("log")
-plt.ylabel("$\eta$", fontsize=12)
-plt.xlabel("$\sqrt{u^2+v^2}$", fontsize=12)
-plt.title("Noise")
-plt.colorbar()
-plt.savefig(figname.format("NoisePS"))
-plt.clf()
+# Make Baseline Layout / Weighting Diagnosis
+fig, ax = plt.subplots(1,3, figsize=(12,4.5), squeeze=False)
 
-# Make covariance of noise power spectrum plot
-plt.figure(figsize=(12,8))
-plt.imshow(np.log10(noise['covariance'][0]), origin='lower', extent = (data["u_eta"][1][0], data["u_eta"][1][-1], data["u_eta"][1][0], data["u_eta"][1][-1]))
-plt.xlabel("$\eta$", fontsize=12)
-plt.ylabel("$\eta$", fontsize=12)
-plt.title("Cov(Noise)")
-plt.colorbar()
-plt.savefig(figname.format("NoiseCov"))
+im = ax[0,0].imshow(data['nbl_uvnu'][:,:,0].T, origin="lower")
+plt.colorbar(im, ax = ax[0,0])
+ax[0,0].set_title("# bl per UV(nu) cell")
+
+im = ax[0,1].imshow(data['nbl_uv'].T, origin="lower")
+plt.colorbar(im, ax = ax[0,1])
+ax[0,1].set_title("Eff. # bl per UV(eta) cell")
+
+ax[0,2].plot(data['u'], data['nbl_u'], label="Eff # bl per |u| cell")
+ax[0,2].plot(data['u'], data['grid_weights'], label="Number of uv cells per u")
+ax[0,2].set_xlabel("|u|")
+ax[0,2].set_yscale('log')
+ax[0,2].legend();
+
+fig.suptitle("Baseline Layout / Weighting", fontsize=15);
+plt.tight_layout()
+
+fig.savefig(figname.format("Weighting"))
 plt.clf()

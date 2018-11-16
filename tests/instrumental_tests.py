@@ -37,7 +37,7 @@ def test_imaging_grid(core_ss):
 
     lk = LikelihoodInstrumental2D(use_data=False)
 
-    fig = imaging(cores=[core_ss, core_instr], likelihood=lk)
+    fig = imaging(cores=[core_ss, core_instr], lk=lk)
 
     plt.savefig("test_imaging_%s.png" % core_ss.__class__.__name__)
     plt.clf()
@@ -140,8 +140,8 @@ def test_imaging_sin_tiled_not_coarsened():
 
 if __name__ == "__main__":
     RUNNING_AS_TEST = False
-    #test_imaging_single_source()
-    #test_imaging_source_line()
-    #test_imaging_source_ring()
-    #test_imaging_gaussian()
+    test_imaging_single_source()
+    test_imaging_source_line()
+    test_imaging_source_ring()
+    test_imaging_gaussian()
     test_imaging_sin_tiled_not_coarsened()
