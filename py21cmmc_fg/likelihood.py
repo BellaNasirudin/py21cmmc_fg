@@ -373,17 +373,12 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
             if not self.use_analytical_noise:
                 mean, covariance = self.numerical_covariance(
-                    self.baselines, self.frequencies,
-                    nrealisations=self.nrealisations, cov = 1
+                    nrealisations=self.nrealisations
                 )
             else:
-                logger.debug("DOING THIS ANALYTICAL THING")
 
                 # Still getting mean numerically for now...
-                mean = self.numerical_covariance(
-                    self.baselines, self.frequencies,
-                    nrealisations=self.nrealisations
-                )[0]
+                mean = self.numerical_covariance(nrealisations=self.nrealisations)[0]
 
                 covariance = self.analytical_covariance(self.u, self.eta,
                                                         np.median(self.frequencies),
@@ -410,8 +405,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         # If we need to get the foreground covariance
         if self.foreground_cores and any([fg._updating for fg in self.foreground_cores]):
-            mean, cov = self.numerical_covariance(self.baselines, self.frequencies,
-                                                  nrealisations=self.nrealisations)
+            mean, cov = self.numerical_covariance(nrealisations=self.nrealisations)
             total_model += mean
 
         else:
@@ -485,7 +479,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return cov
 
-    def numerical_covariance(self, params={}, nrealisations=200, cov=None):
+    def numerical_covariance(self, params={}, nrealisations=200):
         """
         Calculate the covariance of the foregrounds.
     
@@ -509,6 +503,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         p = []
         mean = 0
 
+        if nrealisations < 2:
+            raise ValueError("nrealisations must be more than one")
+
         for ii in range(nrealisations):
             # Create an empty context with the given parameters.
             ctx = self.LikelihoodComputationChain.createChainContext(params)
@@ -527,10 +524,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         mean += np.mean(p, axis=0)
 
         # Note, this covariance *already* has thermal noise built in.
-        if nrealisations > 1 and cov is not None:
-            cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
-        else:
-            cov = 0
+        cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
 
         return mean, cov
 

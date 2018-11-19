@@ -10,9 +10,7 @@ nrealisations = 100
 # Build the chain and run setup()
 chain = build_computation_chain([core_eor, core_instr], likelihood)
 
-num_mean, num_cov = likelihood.numerical_covariance(
-    nrealisations=nrealisations, cov =1 # really unsure about reason for this.
-)
+num_mean, num_cov = likelihood.numerical_covariance(nrealisations=nrealisations)
 
 num_var = np.array([np.diag(c) for c in num_cov])
 
