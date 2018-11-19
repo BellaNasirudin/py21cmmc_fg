@@ -520,7 +520,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             # And turn them into visibilities
             self._instr_core.simulate_data(ctx)
 
-            power, ks, pweights = self.compute_power(ctx.get("visibilities"), baselines, frequencies)
+            power = self.compute_power(ctx.get("visibilities"))
 
             p.append(power)
 
