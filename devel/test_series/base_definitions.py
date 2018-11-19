@@ -3,8 +3,10 @@ from py21cmmc_fg.core import CoreInstrumental, CorePointSourceForegrounds #, For
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
 import numpy as np
 import os
+from powerbox.dft import fft
+from powerbox.tools import angular_average_nd
 
-DEBUG = int(os.environ.get("DEBUG", 0))
+DEBUG = int(os.environ.get("DEBthe instrumental classUG", 0))
 
 if DEBUG>2 or DEBUG<0:
     raise ValueError("DEBUG should be 0,1,2")
@@ -29,7 +31,7 @@ sky_size = 3.0   # in sigma
 max_tile_n = 50
 taper = np.blackman
 integration_time = 1200
-tile_diameter = 4.0
+tile_diameter = 20.0
 
 # MCMC OPTIONS
 params=dict(  # Parameter dict as described above.
@@ -39,7 +41,7 @@ params=dict(  # Parameter dict as described above.
 
 
 # ----- Options that differ between DEBUG levels --------
-HII_DIM = [250, 80, 80][DEBUG]
+HII_DIM = [250, 125, 80][DEBUG]
 DIM = 3 * HII_DIM
 BOX_LEN = 3 * HII_DIM
 
@@ -58,6 +60,19 @@ else:
 z_min = 1420./freq_max - 1
 z_max = 1420./freq_min - 1
 
+def _store_lightcone(ctx):
+    """A storage function for lightcone slices"""
+    return ctx.get("lightcone").brightness_temp[:,:,[0. -1]]
+
+
+def _store_2dps(ctx):
+    lc = ctx.get('lightcone')
+    p, k = fft(lc.brightness_temp, L=lc.lightcone_dimensions)
+    p = np.abs(p)**2
+
+    p = angular_average_nd(p, coords=k, n=2, bin_ave=False)
+    return p
+
 core_eor = CoreLightConeModule(
     redshift = z_min,              # Lower redshift of the lightcone
     max_redshift = z_max,          # Approximate maximum redshift of the lightcone (will be exceeded).
@@ -68,7 +83,11 @@ core_eor = CoreLightConeModule(
     ),
     z_step_factor=z_step_factor,          # How large the steps between evaluated redshifts are (log).
     regenerate=False,
-    keep_data_in_memory=DEBUG
+    keep_data_in_memory=DEBUG,
+    store = {
+        "lc_slices": _store_lightcone,
+        "2DPS": _store_2dps
+    }
 )
 
 

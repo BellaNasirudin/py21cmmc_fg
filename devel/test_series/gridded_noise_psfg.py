@@ -28,8 +28,9 @@ likelihood = CustomLikelihood(
     nrealisations = 10 if DEBUG else 150
 )
 
-chain = run_mcmc(
-    [core_eor, core_fg, core_instr], likelihood,
-    model_name=model_name,   # Filename of main chain output
-)
+if __name__=="__main__":
+    chain = run_mcmc(
+        [core_eor, core_fg, core_instr], likelihood,
+        model_name=model_name,   # Filename of main chain output
+    )
 

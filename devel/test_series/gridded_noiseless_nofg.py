@@ -25,8 +25,9 @@ likelihood = CustomLikelihood(
     datafile=[f'data/{model_name}.npz']
 )
 
-chain = run_mcmc(
-    [core_eor, core_instr], likelihood,
-    model_name=model_name,   # Filename of main chain output
-)
+if __name__== "__main__":
+    chain = run_mcmc(
+        [core_eor, core_instr], likelihood,
+        model_name=model_name,   # Filename of main chain output
+    )
 

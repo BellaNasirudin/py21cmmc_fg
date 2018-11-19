@@ -24,19 +24,9 @@ likelihood = CustomLikelihood(
     noisefile=[f'data/{model_name}.noise.npz'],
 )
 
-# tmp
-# import hickle
-# from py21cmmc.mcmc.mcmc import build_computation_chain
-#
-# chain = build_computation_chain([core_eor, core_instr], likelihood)
-#
-# with open("the_chain.h5", 'w') as f:
-#     hickle.dump(chain, f)
-#
-# raise Exception
-
-chain = run_mcmc(
-    [core_eor, core_instr], likelihood,
-    model_name=model_name,             # Filename of main chain output
-)
+if __name__ == "__main__":
+    chain = run_mcmc(
+        [core_eor, core_instr], likelihood,
+        model_name=model_name,             # Filename of main chain output
+    )
 
