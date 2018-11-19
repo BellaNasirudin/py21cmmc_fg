@@ -12,7 +12,7 @@ Here are the tests:
 """
 
 
-from .base_definitions import CustomCoreInstrument, CustomLikelihood, core_eor, run_mcmc, DEBUG
+from base_definitions import CustomCoreInstrument, CustomLikelihood, core_eor, run_mcmc, DEBUG
 
 model_name = "InstrumentalGridTest"
 
