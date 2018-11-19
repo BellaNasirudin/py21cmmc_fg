@@ -837,7 +837,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     @cached_property
     def noise_power_variance(self):
         """Variance of the noise power spectrum per u bin"""
-        return 2 * self._instr_core.thermal_variance_baseline ** 2 * self.grid_weights / self.nbl_u ** 2
+        return self._instr_core.thermal_variance_baseline ** 2 * self.grid_weights / self.nbl_u ** 2
 
     @staticmethod
     def frequency_fft(vis, freq, taper=np.ones_like):
