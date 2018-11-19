@@ -643,7 +643,6 @@ class CoreInstrumental(CoreBase):
         # Fourier Transform over the (u,v) dimension and baselines sampling
         visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
 
-        print("UVCOORDS: ", uv[0].min(), uv[0].max())
         return visibilities
 
     def sigma(self, frequencies):
@@ -870,10 +869,12 @@ class CoreInstrumental(CoreBase):
         """
         if self.thermal_variance_baseline:
             logger.info("Adding thermal noise...")
-            # TODO: should there be a root(2) here?
             rl_im = np.random.normal(0, 1, (2,) + visibilities.shape)
 
-            return visibilities + np.sqrt(self.thermal_variance_baseline) * (rl_im[0, :] + rl_im[1, :] * 1j)
+            # NOTE: we divide the variance by two here, because the variance of the absolute value of the
+            #       visibility should be equal to thermal_variance_baseline, which is true if the variance of both
+            #       the real and imaginary components are divided by two.
+            return visibilities + np.sqrt(self.thermal_variance_baseline / 2) * (rl_im[0, :] + rl_im[1, :] * 1j)
         else:
             return visibilities
 

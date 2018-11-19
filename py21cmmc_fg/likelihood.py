@@ -485,7 +485,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return cov
 
-    def numerical_covariance(self, baselines, frequencies, params={}, nrealisations=200, cov=None):
+    def numerical_covariance(self, params={}, nrealisations=200, cov=None):
         """
         Calculate the covariance of the foregrounds.
     
@@ -799,8 +799,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         # Some of the cells may have zero baselines, and since they have no variance at all, we set them to zero.
         sm[np.isinf(sm)] = 0
-
-        print(np.sum(sm, axis=-1))
 
         return 1 / np.sum(sm, axis=-1)
 
