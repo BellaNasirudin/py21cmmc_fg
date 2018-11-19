@@ -374,7 +374,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             if not self.use_analytical_noise:
                 mean, covariance = self.numerical_covariance(
                     self.baselines, self.frequencies,
-                    nrealisations=self.nrealisations
+                    nrealisations=self.nrealisations, cov = 1
                 )
             else:
                 logger.debug("DOING THIS ANALYTICAL THING")
