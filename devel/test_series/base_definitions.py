@@ -6,7 +6,7 @@ import os
 from powerbox.dft import fft
 from powerbox.tools import angular_average_nd
 
-DEBUG = int(os.environ.get("DEBthe instrumental classUG", 0))
+DEBUG = int(os.environ.get("DEBUG", 0))
 
 if DEBUG>2 or DEBUG<0:
     raise ValueError("DEBUG should be 0,1,2")
@@ -62,7 +62,7 @@ z_max = 1420./freq_min - 1
 
 def _store_lightcone(ctx):
     """A storage function for lightcone slices"""
-    return ctx.get("lightcone").brightness_temp[:,:,[0. -1]]
+    return ctx.get("lightcone").brightness_temp[0]
 
 
 def _store_2dps(ctx):
@@ -70,7 +70,8 @@ def _store_2dps(ctx):
     p, k = fft(lc.brightness_temp, L=lc.lightcone_dimensions)
     p = np.abs(p)**2
 
-    p = angular_average_nd(p, coords=k, n=2, bin_ave=False)
+    p = angular_average_nd(p, coords=k, n=2, bin_ave=False, bins=21)[0]
+
     return p
 
 core_eor = CoreLightConeModule(
