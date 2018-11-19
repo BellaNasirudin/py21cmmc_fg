@@ -26,6 +26,8 @@ import logging
 logger = logging.getLogger("21CMMC")
 
 from cached_property import cached_property
+import multiprocessing
+from functools import partial
 
 
 class Likelihood2D(LikelihoodBase):
@@ -237,7 +239,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
 
     def __init__(self, n_uv=None, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman,
-                 nrealisations=100, model_uncertainty=0.15, eta_min=0, use_analytical_noise=True, **kwargs):
+                 nrealisations=100, nthreads=1, model_uncertainty=0.15, eta_min=0, use_analytical_noise=True, **kwargs):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
 
@@ -272,6 +274,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             The number of realisations to use if calculating a *foreground* mean/covariance. Only applicable if
             a ForegroundBase instance is loaded as a core.
 
+        nthreads : int, optional
+            Number of processes to use if generating realisations for numerical covariance.
+
         model_uncertainty : float, optional
             Fractional uncertainty in the signal model power spectrum (this is modelling uncertainty of the code itself)
 
@@ -299,6 +304,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         self.model_uncertainty = model_uncertainty
         self.eta_min = eta_min
         self._u_min, self._u_max = u_min, u_max
+        self._nthreads = nthreads
 
         self.use_analytical_noise = use_analytical_noise
 
@@ -373,12 +379,12 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
             if not self.use_analytical_noise:
                 mean, covariance = self.numerical_covariance(
-                    nrealisations=self.nrealisations
+                    nrealisations=self.nrealisations, nthreads=self._nthreads
                 )
             else:
 
                 # Still getting mean numerically for now...
-                mean = self.numerical_covariance(nrealisations=self.nrealisations)[0]
+                mean = self.numerical_covariance(nrealisations=self.nrealisations, nthreads=self._nthreads)[0]
 
                 covariance = self.analytical_covariance(self.u, self.eta,
                                                         np.median(self.frequencies),
@@ -409,7 +415,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             total_model += mean
 
         else:
-            # Normal case (foreground parameters are not being updated, or there are no foregournds)
+            # Normal case (foreground parameters are not being updated, or there are no foregrounds)
             total_model += self.noise["mean"]
             total_cov = [x + y for x, y in zip(self.noise['covariance'], sig_cov)]
 
@@ -479,7 +485,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return cov
 
-    def numerical_covariance(self, params={}, nrealisations=200):
+    def numerical_covariance(self, params={}, nrealisations=200, nthreads=1):
         """
         Calculate the covariance of the foregrounds.
     
@@ -506,20 +512,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         if nrealisations < 2:
             raise ValueError("nrealisations must be more than one")
 
-        for ii in range(nrealisations):
-            # Create an empty context with the given parameters.
-            ctx = self.LikelihoodComputationChain.createChainContext(params)
+        fnc = partial(_produce_mock, self, params)
 
-            # For each realisation, run every foreground core (not the signal!)
-            for core in self.foreground_cores:
-                core.simulate_data(ctx)
-
-            # And turn them into visibilities
-            self._instr_core.simulate_data(ctx)
-
-            power = self.compute_power(ctx.get("visibilities"))
-
-            p.append(power)
+        pool = multiprocessing.Pool(nthreads)
+        p = pool.map(fnc, np.arange(nrealisations))
 
         mean += np.mean(p, axis=0)
 
@@ -886,3 +882,21 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         """
         return cosmo.comoving_distance(z) / (1 * un.sr)
+
+
+def _produce_mock(self, params,  i):
+    """Produces a mock power spectrum for purposes of getting numerical_covariances"""
+    # Create an empty context with the given parameters.
+    ctx = self.LikelihoodComputationChain.createChainContext(params)
+
+    # For each realisation, run every foreground core (not the signal!)
+    for core in self.foreground_cores:
+        core.simulate_data(ctx)
+
+    # And turn them into visibilities
+    self._instr_core.simulate_data(ctx)
+
+    power = self.compute_power(ctx.get("visibilities"))
+    return power
+
+    p.append(power)

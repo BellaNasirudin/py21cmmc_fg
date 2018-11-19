@@ -10,7 +10,7 @@ nrealisations = 100
 # Build the chain and run setup()
 chain = build_computation_chain([core_eor, core_instr], likelihood)
 
-num_mean, num_cov = likelihood.numerical_covariance(nrealisations=nrealisations)
+num_mean, num_cov = likelihood.numerical_covariance(nrealisations=nrealisations, nthreads=4)
 
 num_var = np.array([np.diag(c) for c in num_cov])
 
@@ -42,7 +42,7 @@ ax[0,1].set_title("Analytic Mean")
 
 im = ax[0,2].imshow((num_mean/anl_mean).T, origin='lower', extent=extent)
 plt.colorbar(im, ax=ax[0,2])
-ax[0,2].et_title("Num/Anl Mean")
+ax[0,2].set_title("Num/Anl Mean")
 
 im = ax[1,0].imshow(num_var.T, origin='lower', extent=extent)
 plt.colorbar(im, ax=ax[1, 0])

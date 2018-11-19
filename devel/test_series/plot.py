@@ -105,3 +105,18 @@ plt.tight_layout()
 
 fig.savefig(figname.format("Weighting"))
 plt.clf()
+
+
+# Make alternative statistics plots
+plt.imshow(blobs['lc_slices'][0, 0], origin='lower')
+plt.title("$\alpha=%s$, $T_{vir}=%s$"%(samples.get_chain()[0,0, 0], samples.get_chain()[0,0,1]))
+plt.savefig(figname.format("lightcone_slice"))
+plt.colorbar()
+
+plt.clf()
+
+
+plt.imshow(blobs['2DPS'][0, 0].T, origin='lower')
+plt.title("$\alpha=%s$, $T_{vir}=%s$"%(samples.get_chain()[0,0, 0], samples.get_chain()[0,0,1]))
+plt.savefig(figname.format("Raw2DPS"))
+plt.clf()
