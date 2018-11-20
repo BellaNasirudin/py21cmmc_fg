@@ -790,7 +790,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Some of the cells may have zero baselines, and since they have no variance at all, we set them to zero.
         sm[np.isinf(sm)] = 0
 
-        return 1 / np.sum(sm, axis=-1)
+        nbl_uv = 1 / np.sum(sm, axis=-1)
+        nbl_uv[np.isinf(nbl_uv)] = 0
+        return nbl_uv
 
     @cached_property
     def nbl_u(self):
