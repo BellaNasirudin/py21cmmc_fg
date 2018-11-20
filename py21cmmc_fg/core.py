@@ -12,7 +12,7 @@ import numpy as np
 from astropy import constants as const
 from astropy import units as un
 from scipy.interpolate import RegularGridInterpolator
-from powerbox.dft import fft
+from powerbox.dft import fft, fftfreq
 from powerbox import LogNormalPowerBox
 from os import path
 import py21cmmc as p21
@@ -137,19 +137,19 @@ class ForegroundsBase(CoreBase):
     @property
     def cell_size(self):
         """Size, in (l,m), of a cell in one-dimension"""
-        return self.sky_size/self.n_cells
+        return self.sky_size / self.n_cells
 
     @property
     def cell_area(self):
         """(l,m) area of each sky cell"""
-        return self.cell_size **2
+        return self.cell_size ** 2
 
     @property
     def sky_coords(self):
         """
         Co-ordinates of the left-edge of sky cells along a side.
         """
-        return np.arange(-self.sky_size/2, self.sky_size/2, self.sky_size/self.n_cells)
+        return np.arange(-self.sky_size / 2, self.sky_size / 2, self.sky_size / self.n_cells)
 
     def simulate_data(self, ctx):
         """
@@ -269,16 +269,14 @@ class CorePointSourceForegrounds(ForegroundsBase):
         S_0 = ((S_max ** (1 - beta) - S_min ** (1 - beta)) * np.random.uniform(size=n_sources) + S_min ** (
                 1 - beta)) ** (1 / (1 - beta))
 
-        pos = np.rint(np.random.uniform(0, self.n_cells**2 - 1, size=n_sources)).astype(int)
+        pos = np.rint(np.random.uniform(0, self.n_cells ** 2 - 1, size=n_sources)).astype(int)
 
         # Grid the fluxes at reference frequency, f0
-        sky = np.bincount(pos, weights=S_0, minlength=self.n_cells**2)
-
-        # # Reshape to 2D
-        # sky = sky.reshape((self.n_cells, self.n_cells))
+        sky = np.bincount(pos, weights=S_0, minlength=self.n_cells ** 2)
 
         # Find the fluxes at different frequencies based on spectral index
-        sky = np.outer(sky, (self.frequencies / f0) ** (-gamma)).reshape((self.n_cells, self.n_cells, len(self.frequencies)))
+        sky = np.outer(sky, (self.frequencies / f0) ** (-gamma)).reshape(
+            (self.n_cells, self.n_cells, len(self.frequencies)))
 
         # Divide by cell area to get in Jy/sr (proportional to K)
         sky /= self.cell_area
@@ -448,7 +446,7 @@ class CoreInstrumental(CoreBase):
 
         # Setup baseline lengths.
         if self.antenna_posfile == "grid_centres":
-            self.baselines = None
+            self._baselines = None
 
         else:
             # If antenna_posfile is a simple string, we'll try to find it in the data directory.
@@ -461,11 +459,11 @@ class CoreInstrumental(CoreBase):
 
             # Find all the possible combination of tile displacement
             # baselines is a dim2 array of x and y displacements.
-            self.baselines = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2]) * un.m
+            self._baselines = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2]) * un.m
 
             if self.max_bl_length:
-                self.baselines = self.baselines[
-                    self.baselines[:, 0].value ** 2 + self.baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
+                self._baselines = self._baselines[
+                    self._baselines[:, 0].value ** 2 + self._baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
 
     @cached_property
     def lightcone_core(self):
@@ -493,9 +491,9 @@ class CoreInstrumental(CoreBase):
         "The sky size in lm co-ordinates. This is the size *all the way across*"
         size = 2 * self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
 
-        if np.sqrt(2) * size/2 > 1:
-            logger.warn("Truncating the sky size from %s to 1/sqrt(2)"%size)
-            size = 2/np.sqrt(2)
+        if np.sqrt(2) * size / 2 > 1:
+            logger.warn("Truncating the sky size from %s to 1/sqrt(2)" % size)
+            size = 2 / np.sqrt(2)
 
         return size
 
@@ -559,7 +557,7 @@ class CoreInstrumental(CoreBase):
 
         frequencies = 1420.0e6 / (1 + self.lightcone_core.lightcone_slice_redshifts)
 
-        if not np.all(frequencies==self.instrumental_frequencies):
+        if not np.all(frequencies == self.instrumental_frequencies):
             box = cw.interpolate_map_frequencies(box, frequencies, self.instrumental_frequencies)
 
         box_size = self.lightcone_core.user_params.BOX_LEN / self.rad_to_cmpc(
@@ -569,8 +567,8 @@ class CoreInstrumental(CoreBase):
         if box_size != self.sky_size or len(box) != self.n_cells:
             box = self.stitch_and_coarsen(box, box_size)
 
-        # Convert to Jy
-        box *= self.conversion_factor_K_to_Jy(self.instrumental_frequencies, self.beam_area(self.instrumental_frequencies))
+        # Convert to Jy/sr
+        box *= self.mK_to_Jy_per_sr(self.instrumental_frequencies)
 
         return box
 
@@ -589,9 +587,6 @@ class CoreInstrumental(CoreBase):
             t1 = time.time()
             box = self.stitch_and_coarsen(box, cls.sky_size)
             logger.info(f"... finished in {time.time() - t1} sec.")
-
-        # Convert to Jy
-        box *= cls.cell_area
 
         return box
 
@@ -631,19 +626,31 @@ class CoreInstrumental(CoreBase):
         # Fourier transform image plane to UV plane.
         uvplane, uv = self.image_to_uv(lightcone, self.sky_size)
 
-        # This is probably bad, but set baselines if none are given, to coincide exactly with the uv grid at centre
-        # frequency.
-        if self.baselines is None:
-            self.baselines = np.zeros((len(uv[0]) ** 2, 2))
-            U, V = np.meshgrid(uv[0], uv[1])
-            self.baselines[:, 0] = U.flatten() * (const.c / np.min(self.instrumental_frequencies))
-            self.baselines[:, 1] = V.flatten() * (const.c / np.min(self.instrumental_frequencies))
-            self.baselines = self.baselines * un.m
-
         # Fourier Transform over the (u,v) dimension and baselines sampling
         visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
 
         return visibilities
+
+    @cached_property
+    def uv_grid(self):
+        """The grid of uv along one side"""
+        return fftfreq(N=self.n_cells, d=self.cell_size, b=2 * np.pi)
+
+    @cached_property
+    def baselines(self):
+        """The baselines of the array, in m"""
+        if self._baselines is None:
+            baselines = np.zeros((len(self.uv_grid) ** 2, 2))
+            U, V = np.meshgrid(self.uv_grid, self.uv_grid)
+            baselines[:, 0] = U.flatten() * (const.c / np.min(self.instrumental_frequencies))
+            baselines[:, 1] = V.flatten() * (const.c / np.min(self.instrumental_frequencies))
+            baselines = baselines * un.m
+
+            # Remove auto-correlations
+            baselines = baselines[baselines[:, 0] ** 2 + baselines[:, 1] ** 2 > 1.0 * un.m ** 2]
+            return baselines
+        else:
+            return self._baselines
 
     def sigma(self, frequencies):
         "The Gaussian beam width at each frequency"
@@ -698,8 +705,11 @@ class CoreInstrumental(CoreBase):
         return attenuation
 
     @staticmethod
-    def conversion_factor_K_to_Jy(nu, omega=None):
+    def mK_to_Jy_per_sr(nu):
         """
+        Conversion factor to convert a pixel of mK to Jy/sr.
+
+        Taken from http://w.astro.berkeley.edu/~wright/school_2012.pdf
 
         Parameters
         ----------
@@ -715,12 +725,11 @@ class CoreInstrumental(CoreBase):
             The conversion factor(s) (per frequency) which convert temperature in Kelvin to flux density in Jy.
 
         """
-        if omega is None:
-            flux_density = (2 * const.k_B * 1e-3 * un.K / (((const.c) / (nu * (1 / un.s))) ** 2) * 1e26).to(
-                un.W / (un.Hz * un.m ** 2))
-        else:
-            flux_density = (2 * const.k_B * 1e-3 * un.K / (((const.c) / (nu * (1 / un.s))) ** 2) * 1e26).to(
-                un.W / (un.Hz * un.m ** 2)) / omega
+        wvlngth = const.c / (nu / un.s)
+
+        intensity = 2 * const.k_B * 1e-3 * un.K / wvlngth ** 2
+
+        flux_density = 1e26 * intensity.to(un.W / (un.Hz * un.m ** 2))
 
         return flux_density.value
 
@@ -802,7 +811,7 @@ class CoreInstrumental(CoreBase):
             FT_imag = f_imag(arr)
 
             vis[:, i] = FT_real + FT_imag * 1j
-        
+
         logger.info("... took %s sec." % (time.time() - t1))
         return vis
 
