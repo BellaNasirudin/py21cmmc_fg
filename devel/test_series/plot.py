@@ -26,9 +26,10 @@ except:
 
 blobs = samples.get_blobs()
 
-ps_extent = (data['u'].min(), data['u'].max(), data['eta'].min(), data['eta'].max())
+ps_extent = (data['u'].min(), data['u'].max(), 1e6*data['eta'].min(), 1e6*data['eta'].max()) # times eta by 1e6 to get it into 1/MHz
 if noise is not None:
     var = np.array([np.diag(c) for c in noise['covariance']])
+    mn = noise['mean']
 
 # Make trace plot
 fig, ax = analyse.trace_plot(samples, include_lnl=True, start_iter=0, thin=1, colored=False, show_guess=True)
@@ -43,7 +44,7 @@ plt.clf()
 
 
 # Make 2D Power Spectrum Diagnosis
-fig,ax = plt.subplots(2,3, figsize=(12,6), sharex=True, sharey=True,
+fig,ax = plt.subplots(2,4, figsize=(14,6), sharex=True, sharey=True,
                       subplot_kw={"xscale":"log", "yscale":'log'},
                      gridspec_kw={"hspace":0.05, "wspace":0.05})
 
@@ -63,10 +64,21 @@ im = ax[0,2].imshow(np.log10(blobs['signal'][-1,-1].T), origin='lower',
 plt.colorbar(im, ax=ax[0,2]);
 ax[0,2].set_title("Model -1,-1 2D PS")
 
+im = ax[0,3].imshow(np.log10(mn.T), origin='lower',
+           extent=ps_extent)
+plt.colorbar(im, ax=ax[0,3]);
+ax[0,3].set_title("Expected Noise+FG Power")
+
+im = ax[1,3].imshow(np.log10(blobs['signal'][0,0].T - mn.T), origin='lower',
+           extent=ps_extent)
+plt.colorbar(im, ax=ax[1,3])
+ax[1,3].set_title("EoR 0,0")
+
+
 if noise is not None:
     im = ax[1,0].imshow(np.log10(np.sqrt(var).T), origin='lower', extent=ps_extent)
     plt.colorbar(im, ax=ax[1,0]);
-    ax[1,0].set_title("$\sigma$ 0,0")
+    ax[1,0].set_title("$\sigma$")
 
     im = ax[1,1].imshow(blobs['sigma'][0,0].T, origin='lower', extent=ps_extent)
     plt.colorbar(im, ax=ax[1,1]);
@@ -106,7 +118,7 @@ ax[0,2].set_xlabel("|u|")
 ax[0,2].set_yscale('log')
 ax[0,2].legend();
 
-fig.suptitle("Baseline Layout / Weighting", fontsize=15);
+fig.suptitle("Baseline Layout / Weighting", fontsize=15)
 plt.tight_layout()
 
 fig.savefig(figname.format("Weighting"))
