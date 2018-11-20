@@ -104,9 +104,10 @@ class CustomCoreInstrument(CoreInstrumental):
 
 
 class CustomLikelihood(LikelihoodInstrumental2D):
-    def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, **kwargs):
+    def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[300, 100, 10][DEBUG],
+                 **kwargs):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper,
-                         simulate=True, nthreads=6 if DEBUG else 12,
+                         simulate=True, nthreads=6 if DEBUG else 12, nrealisations=nrealisations,
                          **kwargs)
 
     def store(self, model, storage):

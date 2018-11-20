@@ -19,11 +19,16 @@ figname = "plots/"+model_name+"_{}.png"
 
 samples = analyse.get_samples(name)
 data = np.load(name+'.npz')
-noise = np.load(name+".noise.npz")
+try:
+    noise = np.load(name+".noise.npz")
+except:
+    noise = None
+
 blobs = samples.get_blobs()
 
 ps_extent = (data['u'].min(), data['u'].max(), data['eta'].min(), data['eta'].max())
-var = np.array([np.diag(c) for c in noise['covariance']])
+if noise is not None:
+    var = np.array([np.diag(c) for c in noise['covariance']])
 
 # Make trace plot
 fig, ax = analyse.trace_plot(samples, include_lnl=True, start_iter=0, thin=1, colored=False, show_guess=True)
@@ -58,17 +63,18 @@ im = ax[0,2].imshow(np.log10(blobs['signal'][-1,-1].T), origin='lower',
 plt.colorbar(im, ax=ax[0,2]);
 ax[0,2].set_title("Model -1,-1 2D PS")
 
-im = ax[1,0].imshow(np.log10(np.sqrt(var).T), origin='lower', extent=ps_extent)
-plt.colorbar(im, ax=ax[1,0]);
-ax[1,0].set_title("$\sigma$ 0,0")
+if noise is not None:
+    im = ax[1,0].imshow(np.log10(np.sqrt(var).T), origin='lower', extent=ps_extent)
+    plt.colorbar(im, ax=ax[1,0]);
+    ax[1,0].set_title("$\sigma$ 0,0")
 
-im = ax[1,1].imshow(blobs['sigma'][0,0].T, origin='lower', extent=ps_extent)
-plt.colorbar(im, ax=ax[1,1]);
-ax[1,1].set_title("#$\sigma$ 0,0")
+    im = ax[1,1].imshow(blobs['sigma'][0,0].T, origin='lower', extent=ps_extent)
+    plt.colorbar(im, ax=ax[1,1]);
+    ax[1,1].set_title("#$\sigma$ 0,0")
 
-im = ax[1,2].imshow(blobs['sigma'][-1,-1].T, origin='lower', extent=ps_extent)
-plt.colorbar(im, ax=ax[1,2]);
-ax[1,2].set_title("#$\sigma$ -1,-1")
+    im = ax[1,2].imshow(blobs['sigma'][-1,-1].T, origin='lower', extent=ps_extent)
+    plt.colorbar(im, ax=ax[1,2]);
+    ax[1,2].set_title("#$\sigma$ -1,-1")
 
 fig.suptitle("2D Power Spectrum Diagnosis", fontsize=16)
 
@@ -104,19 +110,4 @@ fig.suptitle("Baseline Layout / Weighting", fontsize=15);
 plt.tight_layout()
 
 fig.savefig(figname.format("Weighting"))
-plt.clf()
-
-
-# Make alternative statistics plots
-plt.imshow(blobs['lc_slices'][0, 0], origin='lower')
-plt.title("$\alpha=%s$, $T_{vir}=%s$"%(samples.get_chain()[0,0, 0], samples.get_chain()[0,0,1]))
-plt.savefig(figname.format("lightcone_slice"))
-plt.colorbar()
-
-plt.clf()
-
-
-plt.imshow(blobs['2DPS'][0, 0].T, origin='lower')
-plt.title("$\alpha=%s$, $T_{vir}=%s$"%(samples.get_chain()[0,0, 0], samples.get_chain()[0,0,1]))
-plt.savefig(figname.format("Raw2DPS"))
 plt.clf()

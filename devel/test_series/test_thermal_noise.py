@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-nrealisations = 100
+nrealisations = 200
 
 # Build the chain and run setup()
 chain = build_computation_chain([core_eor, core_instr], likelihood)

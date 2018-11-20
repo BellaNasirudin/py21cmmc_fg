@@ -15,7 +15,7 @@ from base_definitions import CustomCoreInstrument, CustomLikelihood, core_eor, r
 from py21cmmc_fg.core import ForegroundsBase
 import numpy as np
 
-model_name = "InstrumentalGridTestNoise"
+model_name = "InstrumentalGridTestNoiseNumerical"
 
 class NoFG(ForegroundsBase):
     def build_sky(self):
@@ -32,7 +32,6 @@ core_instr = CustomCoreInstrument(
 likelihood = CustomLikelihood(
     datafile=[f'data/{model_name}.npz'],
     noisefile=[f'data/{model_name}.noise.npz'],
-    nrealisations=200,
 )
 
 if __name__ == "__main__":
