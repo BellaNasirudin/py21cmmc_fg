@@ -528,8 +528,7 @@ class CoreInstrumental(CoreBase):
 
     def _simulate_data(self, ctx):
         """
-        Generate a set of realistic visibilities (i.e. the output we expect from an interferometer) and add it to the
-        context. Also, add the linear frequencies of the observation to the context.
+        Generate a set of realistic visibilities (i.e. the output we expect from an interferometer).
         """
         # Get the basic signal lightcone out of context
         lightcone = ctx.get("lightcone")
@@ -647,7 +646,7 @@ class CoreInstrumental(CoreBase):
             baselines = baselines * un.m
 
             # Remove auto-correlations
-            baselines = baselines[baselines[:, 0] ** 2 + baselines[:, 1] ** 2 > 1.0 * un.m ** 2]
+            #baselines = baselines[baselines[:, 0] ** 2 + baselines[:, 1] ** 2 > 1.0 * un.m ** 2]
             return baselines
         else:
             return self._baselines
