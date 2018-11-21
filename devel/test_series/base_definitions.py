@@ -51,9 +51,9 @@ n_cells = 300 if DEBUG else 500
 
 # Likelihood options
 if DEBUG==2:
-    n_ubins = 21
+    n_ubins = 60
 else:
-    n_ubins = 40
+    n_ubins = 60
 
 # ============== END OF USER-SETTABLE STUFF
 
@@ -104,7 +104,7 @@ class CustomCoreInstrument(CoreInstrumental):
 
 
 class CustomLikelihood(LikelihoodInstrumental2D):
-    def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[300, 100, 10][DEBUG],
+    def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[300, 100, 2][DEBUG],
                  **kwargs):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper,
                          simulate=True, nthreads=6 if DEBUG else 12, nrealisations=nrealisations,

@@ -506,8 +506,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             The sparse block diagonal matrix of the covariance if nrealisation is not 1
             Else it is 0
         """
-        p = []
-        mean = 0
 
         if nrealisations < 2:
             raise ValueError("nrealisations must be more than one")
@@ -517,7 +515,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         pool = multiprocessing.Pool(nthreads)
         p = pool.map(fnc, np.arange(nrealisations))
 
-        mean += np.mean(p, axis=0)
+        mean = np.mean(p, axis=0)
 
         # Note, this covariance *already* has thermal noise built in.
         cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
@@ -625,14 +623,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         visgrid = self.frequency_fft(visgrid, self.frequencies, taper=self.frequency_taper)
 
         # Get 2D power from gridded vis.
-        power2d = self.get_2d_power(visgrid, [self.uvgrid, self.uvgrid, self.eta])
+        power2d = self.get_2d_power(visgrid)
 
         # Restrict power to eta modes above eta_min
         power2d = power2d[:, -len(self.eta):]
 
         return power2d
 
-    def get_2d_power(self, gridded_vis, coords):
+    def get_2d_power(self, gridded_vis):
         """
         Determine the 2D Power Spectrum of the observation.
 
@@ -659,7 +657,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         P = angular_average_nd(
             field = power_3d,
-            coords = coords,
+            coords = [self.uvgrid, self.uvgrid, self.eta],
             bins = self.u_edges, n=2,
             weights=weights,
             bin_ave=False,
@@ -898,7 +896,7 @@ def _produce_mock(self, params,  i):
     # And turn them into visibilities
     self._instr_core.simulate_data(ctx)
 
+    # And compute the power
     power = self.compute_power(ctx.get("visibilities"))
-    return power
 
-    p.append(power)
+    return power
