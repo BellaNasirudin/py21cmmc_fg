@@ -16,10 +16,7 @@ from powerbox.dft import fft, fftfreq
 from powerbox import LogNormalPowerBox
 from os import path
 import py21cmmc as p21
-from astropy.cosmology import Planck15
-
-from py21cmmc import LightCone, UserParams, CosmoParams
-from py21cmmc.mcmc.core import CoreBase, CoreLightConeModule, NotSetupError
+from py21cmmc.mcmc.core import CoreBase, NotSetupError
 
 import logging
 
@@ -30,6 +27,13 @@ import warnings
 import time
 from . import c_wrapper as cw
 from cached_property import cached_property
+
+# A little trick to create a profiling decorator if *not* running with kernprof
+try:
+    profile
+except NameError:
+    def profile(fnc):
+        return fnc
 
 
 class ForegroundsBase(CoreBase):
@@ -240,6 +244,7 @@ class CorePointSourceForegrounds(ForegroundsBase):
         super().__init__(model_params=dict(S_min=S_min, S_max=S_max, alpha=alpha, beta=beta, gamma=gamma, f0=f0),
                          **kwargs)
 
+    @profile
     def build_sky(self, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, gamma=0.8, f0=150e6):
         """
         Create a grid of flux densities corresponding to a sample of point-sources drawn from a power-law source count
@@ -253,7 +258,6 @@ class CorePointSourceForegrounds(ForegroundsBase):
         as long as the beam (if there is one) is reasonably small.
         """
         logger.info("Populating point sources... ")
-        t1 = time.time()
 
         # Find the mean number of sources
         n_bar = quad(lambda x: alpha * x ** (-beta), S_min, S_max)[
@@ -281,7 +285,6 @@ class CorePointSourceForegrounds(ForegroundsBase):
         # Divide by cell area to get in Jy/sr (proportional to K)
         sky /= self.cell_area
 
-        logger.info("\t... took %s sec." % (time.time() - t1))
         return sky
 
 
@@ -564,28 +567,25 @@ class CoreInstrumental(CoreBase):
 
         # If the original simulation does not match the sky grid defined here, stitch and coarsen it
         if box_size != self.sky_size or len(box) != self.n_cells:
-            box = self.stitch_and_coarsen(box, box_size)
+            box = self.tile_and_coarsen(box, box_size)
 
         # Convert to Jy/sr
         box *= self.mK_to_Jy_per_sr(self.instrumental_frequencies)
 
         return box
 
+    @profile
     def prepare_sky_foreground(self, box, cls):
         frequencies = cls.frequencies
 
         if not np.all(frequencies == self.instrumental_frequencies):
             logger.info(f"Interpolating frequencies for {cls.__class__.__name__}...")
-            t1 = time.time()
             box = cw.interpolate_map_frequencies(box, frequencies, self.instrumental_frequencies)
-            logger.info(f"... finished in {time.time() - t1} sec.")
 
         # If the foregrounds don't match this sky grid, stitch and coarsen them.
         if cls.sky_size != self.sky_size or cls.n_cells != self.n_cells:
             logger.info(f"Tiling sky for {cls.__class__.__name__}...")
-            t1 = time.time()
-            box = self.stitch_and_coarsen(box, cls.sky_size)
-            logger.info(f"... finished in {time.time() - t1} sec.")
+            box = self.tile_and_coarsen(box, cls.sky_size)
 
         return box
 
@@ -617,6 +617,7 @@ class CoreInstrumental(CoreBase):
         ctx.add("frequencies", self.instrumental_frequencies)
         ctx.add("new_sky", new_sky)
 
+    @profile
     def add_instrument(self, lightcone):
         # Find beam attenuation
         attenuation = self.beam(self.instrumental_frequencies)
@@ -732,6 +733,7 @@ class CoreInstrumental(CoreBase):
 
         return flux_density.value
 
+    @profile
     @staticmethod
     def image_to_uv(sky, L):
         """
@@ -754,11 +756,10 @@ class CoreInstrumental(CoreBase):
             The u and v co-ordinates of the uvsky, respectively. Units are inverse of L.
         """
         logger.info("Converting to UV space...")
-        t1 = time.time()
         ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
-        logger.info("... took %s sec." % (time.time() - t1))
         return ft, uv_scale
 
+    @profile
     @staticmethod
     def sample_onto_baselines(uvplane, uv, baselines, frequencies):
         """
@@ -792,7 +793,6 @@ class CoreInstrumental(CoreBase):
         frequencies = frequencies / un.s
 
         logger.info("Sampling the data onto baselines...")
-        t1 = time.time()
 
         for i, ff in enumerate(frequencies):
             lamb = const.c / ff.to(1 / un.s)
@@ -811,9 +811,9 @@ class CoreInstrumental(CoreBase):
 
             vis[:, i] = FT_real + FT_imag * 1j
 
-        logger.info("... took %s sec." % (time.time() - t1))
         return vis
 
+    @profile
     @staticmethod
     def get_baselines(x, y):
         """
@@ -851,6 +851,7 @@ class CoreInstrumental(CoreBase):
             df * self.integration_time)
         return (sigma ** 2).value
 
+    @profile
     def add_thermal_noise(self, visibilities):
         """
         Add thermal noise to each visibility.
@@ -886,13 +887,10 @@ class CoreInstrumental(CoreBase):
         else:
             return visibilities
 
-    def stitch_and_coarsen(self, sim, sim_size):
-
+    @profile
+    def tile_and_coarsen(self, sim, sim_size):
+        """"""
         logger.info("Tiling and coarsening boxes...")
-        t1 = time.time()
-
         sim = cw.stitch_and_coarsen_sky(sim, sim_size, self.sky_size, self.n_cells)
-
-        logger.info("... took %s sec." % (time.time() - t1))
 
         return sim
