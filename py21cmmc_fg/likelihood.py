@@ -652,16 +652,16 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # The 3D power spectrum
         power_3d = np.absolute(gridded_vis) ** 2
 
-        weights = self.nbl_uv.copy()
-        weights[weights==0] = np.mean(weights[weights!=0]) / 1e-20
+        # The following does not seem to be needed with new nbl_uv
+        #weights = self.nbl_uv.copy()
+        #weights[weights==0] = np.mean(weights[weights!=0]) / 1e-20
 
         P = angular_average_nd(
             field = power_3d,
             coords = [self.uvgrid, self.uvgrid, self.eta],
             bins = self.u_edges, n=2,
-            weights=weights,
+            weights=self.nbl_uv, #weights,
             bin_ave=False,
-            get_variance=False
         )[0]
 
         # have to make a weight for every eta here..
@@ -800,8 +800,12 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         return angular_average_nd(
             field=self.nbl_uv,
             coords=[self.uvgrid, self.uvgrid],
-            bins=self.u_edges, n=2, bin_ave=False,
-            average=False)[0]
+            bins=self.u_edges, n=2,
+            bin_ave=False,
+            average=False
+        )[0]
+
+
 
     @cached_property
     def eta(self):
