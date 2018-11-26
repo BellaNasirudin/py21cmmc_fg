@@ -6,7 +6,7 @@ import os
 from powerbox.dft import fft
 from powerbox.tools import angular_average_nd
 
-DEBUG = int(os.environ.get("DEBUG", 0))
+DEBUG = int(os.environ.get("DEBUG", 1))
 
 if DEBUG>2 or DEBUG<0:
     raise ValueError("DEBUG should be 0,1,2")
@@ -31,7 +31,7 @@ sky_size = 3.0   # in sigma
 max_tile_n = 50
 taper = np.blackman
 integration_time = 1200
-tile_diameter = 20.0
+tile_diameter = 4.0
 
 # MCMC OPTIONS
 params=dict(  # Parameter dict as described above.
@@ -46,7 +46,7 @@ DIM = 3 * HII_DIM
 BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
-nfreq = 32 if DEBUG else 64
+nfreq = 60 if DEBUG else 100
 n_cells = 300 if DEBUG else 500
 
 # Likelihood options
