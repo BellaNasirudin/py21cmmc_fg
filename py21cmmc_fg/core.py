@@ -153,7 +153,7 @@ class ForegroundsBase(CoreBase):
         """
         Co-ordinates of the left-edge of sky cells along a side.
         """
-        return np.arange(-self.sky_size / 2, self.sky_size / 2, self.sky_size / self.n_cells)
+        return np.linspace(-self.sky_size / 2, self.sky_size / 2 , self.n_cells)
 
     def simulate_data(self, ctx):
         """
@@ -167,7 +167,6 @@ class ForegroundsBase(CoreBase):
         """
         # Update our parameters, if they are being constrained.
         self.model_params.update({k: v for k, v in ctx.getParams().items() if k in self.model_params})
-
         fg_lightcone = self.build_sky(**self.model_params)
 
         # Get the foregrounds list out of the context, defaulting to empty list.
@@ -503,7 +502,7 @@ class CoreInstrumental(CoreBase):
     @cached_property
     def sky_coords(self):
         """Grid-coordinates of the (stitched/coarsened) simulation in lm units"""
-        return np.arange(-self.sky_size / 2, self.sky_size / 2, self.cell_size)
+        return np.linspace(-self.sky_size / 2, self.sky_size / 2 , self.n_cells)
 
     @cached_property
     def cell_size(self):
@@ -540,7 +539,7 @@ class CoreInstrumental(CoreBase):
         box = 0
         if lightcone is not None:
             box += self.prepare_sky_lightcone(lightcone.brightness_temp)
-
+    
         # Now get foreground visibilities and add them in
         foregrounds = ctx.get("foregrounds", [])
 
@@ -586,7 +585,7 @@ class CoreInstrumental(CoreBase):
         if cls.sky_size != self.sky_size or cls.n_cells != self.n_cells:
             logger.info(f"Tiling sky for {cls.__class__.__name__}...")
             box = self.tile_and_coarsen(box, cls.sky_size)
-
+    
         return box
 
     def simulate_data(self, ctx):
@@ -622,13 +621,13 @@ class CoreInstrumental(CoreBase):
         # Find beam attenuation
         attenuation = self.beam(self.instrumental_frequencies)
         lightcone *= attenuation
-
+        
         # Fourier transform image plane to UV plane.
         uvplane, uv = self.image_to_uv(lightcone, self.sky_size)
 
         # Fourier Transform over the (u,v) dimension and baselines sampling
         visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
-
+        
         return visibilities
 
     @cached_property
@@ -697,10 +696,10 @@ class CoreInstrumental(CoreBase):
 
         # Create a meshgrid for the beam attenuation on sky array
         L, M = np.meshgrid(self.sky_coords, self.sky_coords)
-
+        
         attenuation = np.exp(
-            np.outer(-(L ** 2 + M ** 2), 1. / (2 * self.sigma(frequencies) ** 2)).reshape(
-                (self.n_cells, self.n_cells, len(frequencies))))
+            np.outer(-(L ** 2 + M ** 2), 1. / ( self.sigma(frequencies) ** 2)).reshape(
+                (self.n_cells, self.n_cells, len(frequencies)))) # got rid of a factor of 2
 
         return attenuation
 
@@ -793,8 +792,9 @@ class CoreInstrumental(CoreBase):
         frequencies = frequencies / un.s
 
         logger.info("Sampling the data onto baselines...")
-
+        
         for i, ff in enumerate(frequencies):
+            
             lamb = const.c / ff.to(1 / un.s)
             arr = np.zeros(np.shape(baselines))
             arr[:, 0] = (baselines[:, 0] / lamb).value
