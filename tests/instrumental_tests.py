@@ -8,7 +8,8 @@ from py21cmmc_fg.diagnostics import imaging
 import numpy as np
 
 from powerbox.dft import fft, ifft
-
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 RUNNING_AS_TEST = True

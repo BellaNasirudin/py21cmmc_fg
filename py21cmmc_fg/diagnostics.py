@@ -2,6 +2,8 @@
 A module which contains functions providing diagnostic information/plots on chains, either pre- or post-MCMC.
 """
 from py21cmmc.mcmc import build_computation_chain, CoreLightConeModule
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from .likelihood import LikelihoodInstrumental2D
