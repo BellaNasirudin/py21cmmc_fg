@@ -382,7 +382,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     nrealisations=self.nrealisations, nthreads=self._nthreads
                 )
             else:
-
                 # Still getting mean numerically for now...
                 mean = self.numerical_covariance(nrealisations=self.nrealisations, nthreads=self._nthreads)[0]
 
@@ -516,7 +515,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         p = pool.map(fnc, np.arange(nrealisations))
 
         mean = np.mean(p, axis=0)
-
+        
         # Note, this covariance *already* has thermal noise built in.
         cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
 
@@ -618,10 +617,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         # Grid visibilities
         visgrid = self.grid_visibilities(visibilities)
-
         # Transform frequency axis
         visgrid = self.frequency_fft(visgrid, self.frequencies, taper=self.frequency_taper)
-
+        
         # Get 2D power from gridded vis.
         power2d = self.get_2d_power(visgrid)
 
@@ -782,13 +780,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         See devel/noise_power_derivation for details.
         """
         dnu = self.frequencies[1] - self.frequencies[0]
-
+        
         sm = dnu ** 2 * self.frequency_taper(len(self.frequencies)) ** 2 / self.nbl_uvnu
 
         # Some of the cells may have zero baselines, and since they have no variance at all, we set them to zero.
         sm[np.isinf(sm)] = 0
-
-        nbl_uv = 1 / np.sum(sm, axis=-1)
+        
+        # Only use half of nbl_uvnu
+        nbl_uv = 1 / np.sum(sm[:, :, int(len(self.frequencies)/2)+1:], axis=-1)
         nbl_uv[np.isinf(nbl_uv)] = 0
         return nbl_uv
 
@@ -891,6 +890,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 def _produce_mock(self, params,  i):
     """Produces a mock power spectrum for purposes of getting numerical_covariances"""
     # Create an empty context with the given parameters.
+    np.random.seed(i)
     ctx = self.LikelihoodComputationChain.createChainContext(params)
 
     # For each realisation, run every foreground core (not the signal!)
