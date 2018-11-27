@@ -133,16 +133,16 @@ void stitch_and_coarsen_sky(int n_sim, int nf, int n_out, double small_sky_size,
             yend = (int) (((i_y+1)*dlo)/dhi) + 1;
 
             // Add all bits in this cell
-            for(j_x=xstart;j_x<xend;j_x++){
-                for(j_y=ystart;j_y<yend;j_y++){
-                    for(i_f=0; i_f<nf; i_f++){
+            for(i_f=0; i_f<nf; i_f++){
+                for(j_x=xstart;j_x<xend;j_x++){
+                    for(j_y=ystart;j_y<yend;j_y++){
                         big_sky[INDB(i_x, i_y, i_f)] += small_sky[INDS(j_x%n_sim, j_y%n_sim, i_f)];
                     }
                 }
-            }
-
             // Divide by how many cells there were
             big_sky[INDB(i_x, i_y, i_f)] /= ((xend - xstart) * (yend - ystart));
+            }
+
         }
     }
 }
