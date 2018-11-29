@@ -534,19 +534,19 @@ class CoreInstrumental(CoreBase):
         """
         # Get the basic signal lightcone out of context
         lightcone = ctx.get("lightcone")
-
+        
         # Compute visibilities from EoR simulation
         box = 0
         if lightcone is not None:
             box += self.prepare_sky_lightcone(lightcone.brightness_temp)
-    
+        
         # Now get foreground visibilities and add them in
         foregrounds = ctx.get("foregrounds", [])
 
         # Get the total brightness
         for fg, cls in zip(foregrounds, self.foreground_cores):
             box += self.prepare_sky_foreground(fg, cls)
-
+        
         vis = self.add_instrument(box)
 
         return vis, box
@@ -554,10 +554,9 @@ class CoreInstrumental(CoreBase):
     def prepare_sky_lightcone(self, box):
         """
         Transform the raw brightness temperature of a simulated lightcone into the box structure required in this class.
-        """
-
+        """       
         frequencies = 1420.0e6 / (1 + self.lightcone_core.lightcone_slice_redshifts)
-
+        
         if not np.all(frequencies == self.instrumental_frequencies):
             box = cw.interpolate_map_frequencies(box, frequencies, self.instrumental_frequencies)
 
@@ -599,11 +598,11 @@ class CoreInstrumental(CoreBase):
         # Add thermal noise using the mean beam area
         vis = self.add_thermal_noise(vis)
 
-        ctx.add("visibilities", vis)
-        ctx.add("baselines", self.baselines.value)
+        ctx.add("visibilities", vis)        
+        ctx.add("baselines", self.baselines)
         ctx.add("frequencies", self.instrumental_frequencies)
         ctx.add("new_sky", new_sky)
-
+        ctx.add("baselines_type", self.antenna_posfile)
         return vis, new_sky
 
     def __call__(self, ctx):
@@ -611,10 +610,11 @@ class CoreInstrumental(CoreBase):
 
         # Don't add thermal noise on each MCMC iter!!
 
-        ctx.add("visibilities", vis)
-        ctx.add("baselines", self.baselines.value)
+        ctx.add("visibilities", vis)        
+        ctx.add("baselines", self.baselines)
         ctx.add("frequencies", self.instrumental_frequencies)
         ctx.add("new_sky", new_sky)
+        ctx.add("baselines_type", self.antenna_posfile)
 
     @profile
     def add_instrument(self, lightcone):
@@ -626,7 +626,11 @@ class CoreInstrumental(CoreBase):
         uvplane, uv = self.image_to_uv(lightcone, self.sky_size)
 
         # Fourier Transform over the (u,v) dimension and baselines sampling
-        visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
+        if self.antenna_posfile != "grid_centres":
+            visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
+        else:
+            visibilities = uvplane
+            self.baselines = uv
         
         return visibilities
 
@@ -638,16 +642,19 @@ class CoreInstrumental(CoreBase):
     @cached_property
     def baselines(self):
         """The baselines of the array, in m"""
-        if self._baselines is None:
-            baselines = np.zeros((len(self.uv_grid) ** 2, 2))
-            U, V = np.meshgrid(self.uv_grid, self.uv_grid)
-            baselines[:, 0] = U.flatten() * (const.c / np.min(self.instrumental_frequencies))
-            baselines[:, 1] = V.flatten() * (const.c / np.min(self.instrumental_frequencies))
-            baselines = baselines * un.m
-
-            # Remove auto-correlations
-            #baselines = baselines[baselines[:, 0] ** 2 + baselines[:, 1] ** 2 > 1.0 * un.m ** 2]
-            return baselines
+#        if self._baselines is None:
+#            baselines = np.zeros((len(self.uv_grid) ** 2, 2))
+#            U, V = np.meshgrid(self.uv_grid, self.uv_grid)
+#            baselines[:, 0] = U.flatten() * (const.c / np.min(self.instrumental_frequencies))
+#            baselines[:, 1] = V.flatten() * (const.c / np.min(self.instrumental_frequencies))
+#            baselines = baselines * un.m
+#
+#            # Remove auto-correlations
+#            #baselines = baselines[baselines[:, 0] ** 2 + baselines[:, 1] ** 2 > 1.0 * un.m ** 2]
+#            return baselines
+#        else:
+        if self._baselines is not None:
+            return self._baselines.value
         else:
             return self._baselines
 

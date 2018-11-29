@@ -337,6 +337,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         Simulate datasets to which this very class instance should be compared.
         """
+        self.baselines_type = ctx.get("baselines_type")
         visibilities = ctx.get("visibilities")
         p_signal = self.compute_power(visibilities)
 
@@ -376,6 +377,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         # Only save the mean/cov if we have foregrounds, and they don't update every iteration (otherwise, get them
         # every iter).
+
         if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
             if not self.use_analytical_noise:
                 mean, covariance = self.numerical_covariance(
@@ -615,11 +617,15 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         coords : list of 2 arrays
             The first is kperp, and the second is kpar.
         """
-        # Grid visibilities
-        visgrid = self.grid_visibilities(visibilities)
+        # Grid visibilities only if we're not using "grid_centres"
+
+        if self.baselines_type != "grid_centres":
+            visgrid = self.grid_visibilities(visibilities)
+        else:
+            visgrid = visibilities
         # Transform frequency axis
         visgrid = self.frequency_fft(visgrid, self.frequencies, taper=self.frequency_taper)
-        
+
         # Get 2D power from gridded vis.
         power2d = self.get_2d_power(visgrid)
 
@@ -708,9 +714,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         Centres of the uv grid along a side.
         """
-        ugrid = np.linspace(-self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
-                            self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
-        return (ugrid[1:] + ugrid[:-1]) / 2
+        if self.baselines_type != "grid_centres":
+            ugrid = np.linspace(-self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
+                                self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
+            return (ugrid[1:] + ugrid[:-1]) / 2
+        else:
+            # return the uv
+            return self.baselines
 
     @cached_property
     def uv_max(self):
@@ -748,19 +758,22 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     @cached_property
     def nbl_uvnu(self):
         """The number of baselines in each u,v,nu cell"""
-
-        ugrid = np.linspace(-self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
-                            self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
-        weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
-
-        for j, f in enumerate(self.frequencies):
-            # U,V values change with frequency.
-            u = self.baselines[:, 0] * f / const.c
-            v = self.baselines[:, 1] * f / const.c
-
-            # Get number of baselines in each bin
-            weights[:, :, j] = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid])[0]
-
+        
+        if self.baselines_type != "grid_centres":
+            ugrid = np.linspace(-self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
+                                self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
+            weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
+    
+            for j, f in enumerate(self.frequencies):
+                # U,V values change with frequency.
+                u = self.baselines[:, 0] * f / const.c
+                v = self.baselines[:, 1] * f / const.c
+    
+                # Get number of baselines in each bin
+                weights[:, :, j] = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid])[0]
+        else:
+            weights = np.ones((self.n_uv, self.n_uv, len(self.frequencies)))
+            
         return weights
 
     @cached_property
@@ -851,7 +864,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             The eta-coordinates, without negative values.
         """
         ft = fft(vis * taper(len(freq)), (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)[0]
-
+        
         ft = ft[:, :, (int(len(freq) / 2) + 1):]
         return ft
 
