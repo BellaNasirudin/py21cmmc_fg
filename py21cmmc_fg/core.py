@@ -630,7 +630,7 @@ class CoreInstrumental(CoreBase):
             visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
         else:
             visibilities = uvplane
-            self.baselines = uv
+            self.baselines = uv[1]
         
         return visibilities
 
