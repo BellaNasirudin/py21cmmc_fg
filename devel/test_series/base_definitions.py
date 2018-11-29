@@ -51,7 +51,7 @@ n_cells = 300 if DEBUG else 500
 
 # Likelihood options
 if DEBUG==2:
-    n_ubins = 60
+    n_ubins = 30
 else:
     n_ubins = 60
 

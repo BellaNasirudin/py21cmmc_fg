@@ -518,7 +518,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         
         # Note, this covariance *already* has thermal noise built in.
         cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
-
+        
         return mean, cov
 
     @staticmethod
@@ -650,10 +650,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # The 3D power spectrum
         power_3d = np.absolute(gridded_vis) ** 2
 
-        # The following does not seem to be needed with new nbl_uv
-        #weights = self.nbl_uv.copy()
-        #weights[weights==0] = np.mean(weights[weights!=0]) / 1e-20
-
         P = angular_average_nd(
             field = power_3d,
             coords = [self.uvgrid, self.uvgrid, self.eta],
@@ -661,11 +657,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             weights=self.nbl_uv, #weights,
             bin_ave=False,
         )[0]
-
-        # have to make a weight for every eta here..
-        # weights = np.tile(np.atleast_3d(weights), (1, 1, len(coords[-1])))
-        # weights = angular_average_nd(weights ** 2, coords, bins, n=2, bin_ave=False, get_variance=False, average=False)[
-        #     0]
 
         return P
 
@@ -786,9 +777,11 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Some of the cells may have zero baselines, and since they have no variance at all, we set them to zero.
         sm[np.isinf(sm)] = 0
         
-        # Only use half of nbl_uvnu
-        nbl_uv = 1 / np.sum(sm[:, :, int(len(self.frequencies)/2)+1:], axis=-1)
+        nbl_uv = 1 / np.sum(sm, axis=-1)
         nbl_uv[np.isinf(nbl_uv)] = 0
+        
+        nbl_uv = np.sum(np.absolute(fft(self.nbl_uvnu, (self.frequencies.max() - self.frequencies.min()), axes=(-1,))[0])**2, axis=-1)
+        
         return nbl_uv
 
     @cached_property
