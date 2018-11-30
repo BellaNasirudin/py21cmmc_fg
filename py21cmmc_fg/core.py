@@ -364,7 +364,7 @@ class CoreInstrumental(CoreBase):
 
     def __init__(self, *, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
                  integration_time=120, Tsys=240, effective_collecting_area=16.0,
-                 sky_extent=3, n_cells=300,
+                 sky_extent=3, n_cells=300, beam=None,
                  **kwargs):
         """
         Parameters
@@ -435,6 +435,7 @@ class CoreInstrumental(CoreBase):
         self.max_bl_length = max_bl_length
         self.integration_time = integration_time
         self.Tsys = Tsys
+        self.beam = beam
 
         self.effective_collecting_area = effective_collecting_area * un.m ** 2
 
@@ -619,8 +620,9 @@ class CoreInstrumental(CoreBase):
     @profile
     def add_instrument(self, lightcone):
         # Find beam attenuation
-        attenuation = self.beam(self.instrumental_frequencies)
-        lightcone *= attenuation
+        if self.beam is not None:
+            attenuation = self.beam(self.instrumental_frequencies)
+            lightcone *= attenuation
         
         # Fourier transform image plane to UV plane.
         uvplane, uv = self.image_to_uv(lightcone, self.sky_size)
