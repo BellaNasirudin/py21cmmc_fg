@@ -6,7 +6,7 @@ import os
 from powerbox.dft import fft
 from powerbox.tools import angular_average_nd
 
-DEBUG = int(os.environ.get("DEBUG", 1))
+DEBUG = int(os.environ.get("DEBUG", 2))
 
 if DEBUG>2 or DEBUG<0:
     raise ValueError("DEBUG should be 0,1,2")
@@ -115,11 +115,11 @@ class CustomLikelihood(LikelihoodInstrumental2D):
         storage['signal'] = model[0]['p_signal'] + self.noise['mean']
 
         # Remember that the variance is actually the variance plus the model uncertainty
-        sig_cov = self.get_signal_covariance(model[0]['p_signal'])
-
-        # Add a "number of sigma" entry
-        var = np.array([np.diag(p) + np.diag(s) for p,s in zip(self.noise['covariance'], sig_cov)])
-        storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal'])/np.sqrt(var)
+#        sig_cov = self.get_signal_covariance(model[0]['p_signal'])
+#
+#        # Add a "number of sigma" entry
+#        var = np.array([np.diag(p) + np.diag(s) for p,s in zip(self.noise['covariance'], sig_cov)])
+#        storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal'])/np.sqrt(var)
 
 
 def run_mcmc(*args, model_name, params=params, **kwargs):

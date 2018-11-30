@@ -239,7 +239,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
 
     def __init__(self, n_uv=None, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman,
-                 nrealisations=100, nthreads=1, model_uncertainty=0.15, eta_min=0, use_analytical_noise=True, **kwargs):
+                 nrealisations=100, nthreads=1, model_uncertainty=0.15, eta_min=0, use_analytical_noise=True, ps_dim=1, **kwargs):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
 
@@ -305,6 +305,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         self.eta_min = eta_min
         self._u_min, self._u_max = u_min, u_max
         self._nthreads = nthreads
+        self.ps_dim = ps_dim
 
         self.use_analytical_noise = use_analytical_noise
 
@@ -377,29 +378,32 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         # Only save the mean/cov if we have foregrounds, and they don't update every iteration (otherwise, get them
         # every iter).
-
-        if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
-            if not self.use_analytical_noise:
-                mean, covariance = self.numerical_covariance(
-                    nrealisations=self.nrealisations, nthreads=self._nthreads
-                )
+        if self.ps_dim == 2:
+            if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
+                if not self.use_analytical_noise:
+                    mean, covariance = self.numerical_covariance(
+                        nrealisations=self.nrealisations, nthreads=self._nthreads
+                    )
+                else:
+                    # Still getting mean numerically for now...
+                    mean = self.numerical_covariance(nrealisations=self.nrealisations, nthreads=self._nthreads)[0]
+    
+                    covariance = self.analytical_covariance(self.u, self.eta,
+                                                            np.median(self.frequencies),
+                                                            self.frequencies.max() - self.frequencies.min())
+    
+                    thermal_covariance = self.get_thermal_covariance()
+                    covariance = [x + y for x, y in zip(covariance, thermal_covariance)]
+    
             else:
-                # Still getting mean numerically for now...
-                mean = self.numerical_covariance(nrealisations=self.nrealisations, nthreads=self._nthreads)[0]
-
-                covariance = self.analytical_covariance(self.u, self.eta,
-                                                        np.median(self.frequencies),
-                                                        self.frequencies.max() - self.frequencies.min())
-
-                thermal_covariance = self.get_thermal_covariance()
-                covariance = [x + y for x, y in zip(covariance, thermal_covariance)]
-
+                # Only need thermal variance if we don't have foregrounds, otherwise it will be embedded in the
+                # above foreground covariance... BUT NOT IF THE FOREGROUND COVARIANCE IS ANALYTIC!!
+                covariance = self.get_thermal_covariance()
+                mean = np.repeat(self.noise_power_expectation, len(self.eta)).reshape((len(self.u), len(self.eta)))
         else:
-            # Only need thermal variance if we don't have foregrounds, otherwise it will be embedded in the
-            # above foreground covariance... BUT NOT IF THE FOREGROUND COVARIANCE IS ANALYTIC!!
-            covariance = self.get_thermal_covariance()
-            mean = np.repeat(self.noise_power_expectation, len(self.eta)).reshape((len(self.u), len(self.eta)))
-
+            mean = 0
+            covariance = 0
+            
         return [{"mean": mean, "covariance": covariance}]
 
     def computeLikelihood(self, model):
@@ -407,21 +411,24 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # remember that model is *exactly* the result of simulate(), which is a  *list* of dicts, so unpack
         model = model[0]
 
-        sig_cov = self.get_signal_covariance(model['p_signal'])
         total_model = model['p_signal']
-
-        # If we need to get the foreground covariance
-        if self.foreground_cores and any([fg._updating for fg in self.foreground_cores]):
-            mean, cov = self.numerical_covariance(nrealisations=self.nrealisations)
-            total_model += mean
-
+        
+        if self.ps_dim ==2:
+            sig_cov = self.get_signal_covariance(model['p_signal'])
+            # If we need to get the foreground covariance
+            if self.foreground_cores and any([fg._updating for fg in self.foreground_cores]):
+                mean, cov = self.numerical_covariance(nrealisations=self.nrealisations)
+                total_model += mean
+    
+            else:
+                # Normal case (foreground parameters are not being updated, or there are no foregrounds)
+                total_model += self.noise["mean"]
+                total_cov = [x + y for x, y in zip(self.noise['covariance'], sig_cov)]
+    
+            lnl = lognormpdf(self.data['p_signal'], total_model, total_cov)
         else:
-            # Normal case (foreground parameters are not being updated, or there are no foregrounds)
-            total_model += self.noise["mean"]
-            total_cov = [x + y for x, y in zip(self.noise['covariance'], sig_cov)]
-
-        lnl = lognormpdf(self.data['p_signal'], total_model, total_cov)
-
+            lnl = -0.5 * np.sum((self.data['p_signal'] - total_model )**2/(self.model_uncertainty * model['p_signal']) ** 2)
+        
         return lnl
 
     @cached_property
@@ -624,17 +631,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             visgrid = visibilities
         # Transform frequency axis
-        visgrid = self.frequency_fft(visgrid, self.frequencies, taper=self.frequency_taper)
+        visgrid = self.frequency_fft(visgrid, self.frequencies, self.ps_dim, taper=self.frequency_taper)
 
         # Get 2D power from gridded vis.
-        power2d = self.get_2d_power(visgrid)
-
-        # Restrict power to eta modes above eta_min
-        power2d = power2d[:, -len(self.eta):]
+        power2d = self.get_power(visgrid)
 
         return power2d
 
-    def get_2d_power(self, gridded_vis):
+    def get_power(self, gridded_vis):
         """
         Determine the 2D Power Spectrum of the observation.
 
@@ -656,13 +660,22 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # The 3D power spectrum
         power_3d = np.absolute(gridded_vis) ** 2
 
-        P = angular_average_nd(
-            field = power_3d,
-            coords = [self.uvgrid, self.uvgrid, self.eta],
-            bins = self.u_edges, n=2,
-            weights=self.nbl_uv, #weights,
-            bin_ave=False,
-        )[0]
+        if self.ps_dim == 2:
+            P = angular_average_nd(
+                field = power_3d,
+                coords = [self.uvgrid, self.uvgrid, self.eta],
+                bins = self.u_edges, n= self.ps_dim,
+                weights=self.nbl_uv, #weights,
+                bin_ave=False,
+            )[0]
+        else:
+            P = angular_average_nd(
+                field = power_3d,
+                coords = [self.uvgrid, self.uvgrid, self.eta],
+                bins = self.u_edges, #n= self.ps_dim,
+                weights=self.nbl_uv, #weights,
+                bin_ave=False,
+            )[0]            
 
         return P
 
@@ -783,18 +796,21 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         See devel/noise_power_derivation for details.
         """
-        dnu = self.frequencies[1] - self.frequencies[0]
+#        dnu = self.frequencies[1] - self.frequencies[0]
+#        
+#        sm = dnu ** 2 * self.frequency_taper(len(self.frequencies)) ** 2 / self.nbl_uvnu
+#
+#        # Some of the cells may have zero baselines, and since they have no variance at all, we set them to zero.
+#        sm[np.isinf(sm)] = 0
+#        
+#        nbl_uv = 1 / np.sum(sm, axis=-1)
+#        nbl_uv[np.isinf(nbl_uv)] = 0
         
-        sm = dnu ** 2 * self.frequency_taper(len(self.frequencies)) ** 2 / self.nbl_uvnu
-
-        # Some of the cells may have zero baselines, and since they have no variance at all, we set them to zero.
-        sm[np.isinf(sm)] = 0
+        nbl_uv = np.absolute(fft(self.nbl_uvnu, (self.frequencies.max() - self.frequencies.min()), axes=(-1,))[0])**2
         
-        nbl_uv = 1 / np.sum(sm, axis=-1)
-        nbl_uv[np.isinf(nbl_uv)] = 0
-        
-        nbl_uv = np.sum(np.absolute(fft(self.nbl_uvnu, (self.frequencies.max() - self.frequencies.min()), axes=(-1,))[0])**2, axis=-1)
-        
+        if self.ps_dim==2:
+            nbl_uv = np.sum(nbl_uv, axis=-1)
+            
         return nbl_uv
 
     @cached_property
@@ -802,13 +818,16 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         Effective number of baselines in a |u| annulus.
         """
-        return angular_average_nd(
-            field=self.nbl_uv,
-            coords=[self.uvgrid, self.uvgrid],
-            bins=self.u_edges, n=2,
-            bin_ave=False,
-            average=False
-        )[0]
+        if self.ps_dim == 2:
+            return angular_average_nd(
+                field=self.nbl_uv,
+                coords=[self.uvgrid, self.uvgrid],
+                bins=self.u_edges, n=2,
+                bin_ave=False,
+                average=False
+            )[0]
+        else:
+            return None
 
 
 
@@ -817,7 +836,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         "Grid of positive frequency fourier-modes"
         dnu = self.frequencies[1] - self.frequencies[0]
         eta = fftfreq(len(self.frequencies), d=dnu, b=2 * np.pi)
-        return eta[eta > self.eta_min]
+        if self.ps_dim ==2:
+            eta = eta[eta > self.eta_min]
+        return eta
 
     @cached_property
     def grid_weights(self):
@@ -839,7 +860,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         return self._instr_core.thermal_variance_baseline ** 2 * self.grid_weights / self.nbl_u ** 2
 
     @staticmethod
-    def frequency_fft(vis, freq, taper=np.ones_like):
+    def frequency_fft(vis, freq, dim, taper=np.ones_like):
         """
         Fourier-transform a gridded visibility along the frequency axis.
 
@@ -865,7 +886,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         ft = fft(vis * taper(len(freq)), (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)[0]
         
-        ft = ft[:, :, (int(len(freq) / 2) + 1):]
+        if dim==2:
+            ft = ft[:, :, (int(len(freq) / 2) + 1):]
+            
         return ft
 
     @staticmethod
