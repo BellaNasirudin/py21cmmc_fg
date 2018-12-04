@@ -364,7 +364,7 @@ class CoreInstrumental(CoreBase):
 
     def __init__(self, *, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
                  integration_time=120, Tsys=240, effective_collecting_area=16.0,
-                 sky_extent=3, n_cells=300, beam=None,
+                 sky_extent=3, n_cells=300, add_beam=False,
                  **kwargs):
         """
         Parameters
@@ -435,7 +435,7 @@ class CoreInstrumental(CoreBase):
         self.max_bl_length = max_bl_length
         self.integration_time = integration_time
         self.Tsys = Tsys
-        self.beam = beam
+        self.add_beam = add_beam
 
         self.effective_collecting_area = effective_collecting_area * un.m ** 2
 
@@ -620,7 +620,7 @@ class CoreInstrumental(CoreBase):
     @profile
     def add_instrument(self, lightcone):
         # Find beam attenuation
-        if self.beam is not None:
+        if self.add_beam is True:
             attenuation = self.beam(self.instrumental_frequencies)
             lightcone *= attenuation
         
