@@ -760,8 +760,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
     @cached_property
     def u_edges(self):
-        """Edges of |u| bins"""
-        return np.linspace(self.u_min, self.u_max, self.n_ubins + 1)
+        """Edges of |u| bins where |u| = sqrt(u**2+v**2)"""
+        return np.linspace(self.u_min, np.sqrt(2*self.u_max**2), self.n_ubins + 1)
 
     @cached_property
     def u(self):
