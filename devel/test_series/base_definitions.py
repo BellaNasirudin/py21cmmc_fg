@@ -47,7 +47,7 @@ BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
 nfreq = 60 if DEBUG else 100
-n_cells = 300 if DEBUG else 500
+n_cells = 500 if DEBUG else 750
 
 # Likelihood options
 if DEBUG==2:
@@ -88,7 +88,8 @@ core_eor = CoreLightConeModule(
     store = {
         "lc_slices": _store_lightcone,
         "2DPS": _store_2dps
-    }
+    },
+    change_seed_every_iter=True
 )
 
 
