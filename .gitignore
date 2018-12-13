@@ -4,3 +4,21 @@
 *.pyc
 
 devel/\.ipynb_checkpoints/
+
+*.png
+
+*.pdf
+
+devel/data/
+devel/test_series/data/
+
+py21cmmc_fg\.egg-info/
+
+build/*
+*.so
+
+devel/test_series/\.ipynb_checkpoints/
+
+tests/derpa\.npy
+
+devel/test_series/thermal_noise_data\.pkl

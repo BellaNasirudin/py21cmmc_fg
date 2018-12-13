@@ -1,2 +1,0 @@
-numpy
-py21cmmc
