@@ -363,8 +363,8 @@ class CoreInstrumental(CoreBase):
     """
 
     def __init__(self, *, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
-                 integration_time=120, Tsys=240, effective_collecting_area=16.0,
-                 sky_extent=3, n_cells=300, add_beam=False,
+                 integration_time=120, Tsys=240, effective_collecting_area=21.0,
+                 sky_extent=3, n_cells=300, add_beam=True,
                  **kwargs):
         """
         Parameters
