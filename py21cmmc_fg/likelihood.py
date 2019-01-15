@@ -20,7 +20,7 @@ from .util import lognormpdf
 
 from scipy.integrate import quad
 from scipy.special import erf
-
+from scipy.interpolate import griddata
 import logging
 
 logger = logging.getLogger("21CMMC")
@@ -239,7 +239,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
 
     def __init__(self, n_uv=None, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman,
-                 nrealisations=100, nthreads=1, model_uncertainty=0.15, eta_min=0, use_analytical_noise=True, ps_dim=1, **kwargs):
+                 nrealisations=100, nthreads=1, model_uncertainty=0.15, eta_min=0, use_analytical_noise=False, ps_dim=2, **kwargs):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
 
@@ -378,32 +378,31 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         # Only save the mean/cov if we have foregrounds, and they don't update every iteration (otherwise, get them
         # every iter).
-        if self.ps_dim == 2:
-            if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
-                if not self.use_analytical_noise:
-                    mean, covariance = self.numerical_covariance(
-                        nrealisations=self.nrealisations, nthreads=self._nthreads
-                    )
-                else:
-                    # Still getting mean numerically for now...
-                    mean = self.numerical_covariance(nrealisations=self.nrealisations, nthreads=self._nthreads)[0]
-    
-                    covariance = self.analytical_covariance(self.u, self.eta,
-                                                            np.median(self.frequencies),
-                                                            self.frequencies.max() - self.frequencies.min())
-    
-                    thermal_covariance = self.get_thermal_covariance()
-                    covariance = [x + y for x, y in zip(covariance, thermal_covariance)]
-    
+        if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
+            if not self.use_analytical_noise:
+                mean, covariance = self.numerical_covariance(
+                    nrealisations=self.nrealisations, nthreads=self._nthreads
+                )
             else:
-                # Only need thermal variance if we don't have foregrounds, otherwise it will be embedded in the
-                # above foreground covariance... BUT NOT IF THE FOREGROUND COVARIANCE IS ANALYTIC!!
-                covariance = self.get_thermal_covariance()
-                mean = np.repeat(self.noise_power_expectation, len(self.eta)).reshape((len(self.u), len(self.eta)))
+                # Still getting mean numerically for now...
+                mean = self.numerical_covariance(nrealisations=self.nrealisations, nthreads=self._nthreads)[0]
+
+                covariance = self.analytical_covariance(self.u, self.eta,
+                                                        np.median(self.frequencies),
+                                                        self.frequencies.max() - self.frequencies.min())
+
+                thermal_covariance = self.get_thermal_covariance()
+                covariance = [x + y for x, y in zip(covariance, thermal_covariance)]
+
         else:
+            # Only need thermal variance if we don't have foregrounds, otherwise it will be embedded in the
+            # above foreground covariance... BUT NOT IF THE FOREGROUND COVARIANCE IS ANALYTIC!!
+#                covariance = self.get_thermal_covariance()
+#                mean = np.repeat(self.noise_power_expectation, len(self.eta)).reshape((len(self.u), len(self.eta)))               
             mean = 0
             covariance = 0
-            
+
+        print("MEAN NOISE ISS", mean)    
         return [{"mean": mean, "covariance": covariance}]
 
     def computeLikelihood(self, model):
@@ -416,18 +415,22 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         if self.ps_dim ==2:
             sig_cov = self.get_signal_covariance(model['p_signal'])
             # If we need to get the foreground covariance
-            if self.foreground_cores and any([fg._updating for fg in self.foreground_cores]):
-                mean, cov = self.numerical_covariance(nrealisations=self.nrealisations)
-                total_model += mean
-    
-            else:
+#            if self.foreground_cores and any([fg._updating for fg in self.foreground_cores]):
+#                mean, cov = self.numerical_covariance(nrealisations=self.nrealisations)
+#                total_model += mean
+#    
+#            else:
+            if self.foreground_cores :
                 # Normal case (foreground parameters are not being updated, or there are no foregrounds)
                 total_model += self.noise["mean"]
                 total_cov = [x + y for x, y in zip(self.noise['covariance'], sig_cov)]
+            else:
+                total_cov = sig_cov
     
             lnl = lognormpdf(self.data['p_signal'], total_model, total_cov)
         else:
             lnl = -0.5 * np.sum((self.data['p_signal'] - total_model )**2/(self.model_uncertainty * model['p_signal']) ** 2)
+        print("LIKELIHOOD IS", lnl)
         
         return lnl
 
@@ -487,11 +490,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         cov : list of arrays
             A length-u list of arrays of shape n_eta * n_eta.
         """
-        cov = []
-        for sig_eta in signal_power:
-            cov.append((self.model_uncertainty * np.diag(sig_eta)) ** 2)
-
-        return cov
+        if self.ps_dim!=1:
+            cov = []
+            for sig_eta in signal_power:
+                cov.append((self.model_uncertainty * np.diag(sig_eta)) ** 2)
+    
+            return cov
+        else:
+            return 0
 
     def numerical_covariance(self, params={}, nrealisations=200, nthreads=1):
         """
@@ -526,7 +532,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         mean = np.mean(p, axis=0)
         
         # Note, this covariance *already* has thermal noise built in.
-        cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
+        if self.ps_dim == 2:
+            cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
+        else:
+            cov = np.var(np.array(p), axis = 0)
         
         return mean, cov
 
@@ -635,7 +644,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         # Get 2D power from gridded vis.
         power2d = self.get_power(visgrid)
-
+     
         return power2d
 
     def get_power(self, gridded_vis):
@@ -667,7 +676,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 bins = self.u_edges, n= self.ps_dim,
                 weights=self.nbl_uv, #weights,
                 bin_ave=False,
-            )[0]
+            )[0][1:,(len(self.eta) +2):]
+            
         else:
             P = angular_average_nd(
                 field = power_3d,
@@ -675,8 +685,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 bins = self.u_edges, #n= self.ps_dim,
                 weights=self.nbl_uv, #weights,
                 bin_ave=False,
-            )[0]            
+            )[0] 
 
+        
         return P
 
     def grid_visibilities(self, visibilities):
@@ -701,7 +712,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                             self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
 
         visgrid = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)), dtype=np.complex128)
-
+        
+        centres = (ugrid[1:] + ugrid[:-1])/2
+        cgrid_u, cgrid_v = np.meshgrid(centres, centres)
         for j, f in enumerate(self.frequencies):
             # U,V values change with frequency.
             u = self.baselines[:, 0] * f / const.c
@@ -710,15 +723,15 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             # Histogram the baselines in each grid but interpolate to find the visibility at the centre
             # TODO: Bella, I don't think this is correct. You don't want to interpolate to the centre, you just
             # want to add the incoherent visibilities together.
-            # visgrid[:, :, j] = griddata((u.value , v.value), np.real(visibilities[:,j]),(cgrid_u,cgrid_v),method="linear") + griddata((u.value , v.value), np.imag(visibilities[:,j]),(cgrid_u,cgrid_v),method="linear") *1j
+            visgrid[:, :, j] = griddata((u.value , v.value), np.real(visibilities[:,j]),(cgrid_u,cgrid_v),method="linear") + griddata((u.value , v.value), np.imag(visibilities[:,j]),(cgrid_u,cgrid_v),method="linear") *1j
 
             # So, instead, my version (SGM). One for real, one for complex.
-            tmp_rl = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].real)[0]
-            tmp_im = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].imag)[0]
-            visgrid[:, :, j] = tmp_rl + 1j * tmp_im
+#            tmp_rl = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].real)[0]
+#            tmp_im = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].imag)[0]
+#            visgrid[:, :, j] = tmp_rl + 1j * tmp_im
 
         # Take the average visibility (divide by weights), being careful not to divide by zero.
-        visgrid[self.nbl_uvnu != 0] /= self.nbl_uvnu[self.nbl_uvnu != 0]
+        #visgrid[self.nbl_uvnu != 0] /= self.nbl_uvnu[self.nbl_uvnu != 0]
 
         return visgrid
 
@@ -738,7 +751,11 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     @cached_property
     def uv_max(self):
         if self._uv_max is None:
-            return (max([np.abs(b).max() for b in self.baselines]) * self.frequencies.min() / const.c).value
+            if self.baselines_type != "grid_centres":
+                return (max([np.abs(b).max() for b in self.baselines]) * self.frequencies.min() / const.c).value
+            else:
+                # return the uv
+                return self.baselines.max()
         else:
             return self._uv_max
 
@@ -761,7 +778,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     @cached_property
     def u_edges(self):
         """Edges of |u| bins where |u| = sqrt(u**2+v**2)"""
-        return np.linspace(self.u_min, np.sqrt(2*self.u_max**2), self.n_ubins + 1)
+        return np.linspace(self.u_min, self.u_max, self.n_ubins + 1)
 
     @cached_property
     def u(self):
@@ -796,21 +813,21 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         See devel/noise_power_derivation for details.
         """
-#        dnu = self.frequencies[1] - self.frequencies[0]
-#        
-#        sm = dnu ** 2 * self.frequency_taper(len(self.frequencies)) ** 2 / self.nbl_uvnu
-#
-#        # Some of the cells may have zero baselines, and since they have no variance at all, we set them to zero.
-#        sm[np.isinf(sm)] = 0
-#        
-#        nbl_uv = 1 / np.sum(sm, axis=-1)
-#        nbl_uv[np.isinf(nbl_uv)] = 0
+        dnu = self.frequencies[1] - self.frequencies[0]
         
-        nbl_uv = np.absolute(fft(self.nbl_uvnu, (self.frequencies.max() - self.frequencies.min()), axes=(-1,))[0])**2
+        sm = dnu ** 2 / self.nbl_uvnu
+
+        # Some of the cells may have zero baselines, and since they have no variance at all, we set them to zero.
+        sm[np.isinf(sm)] = 0
         
-        if self.ps_dim==2:
-            nbl_uv = np.sum(nbl_uv, axis=-1)
-            
+        nbl_uv = 1 / np.sum(sm, axis=-1)
+        nbl_uv[np.isinf(nbl_uv)] = 0
+           
+        if self.ps_dim==1:
+            nbl_uv_temp = nbl_uv.copy()
+            for ii in range(len(self.eta)-1):
+                nbl_uv = np.dstack((nbl_uv, nbl_uv_temp))
+
         return nbl_uv
 
     @cached_property
@@ -885,9 +902,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             The eta-coordinates, without negative values.
         """
         ft = fft(vis * taper(len(freq)), (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)[0]
-        
-        if dim==2:
-            ft = ft[:, :, (int(len(freq) / 2) + 1):]
             
         return ft
 
