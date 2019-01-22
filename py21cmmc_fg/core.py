@@ -559,8 +559,7 @@ class CoreInstrumental(CoreBase):
         frequencies = 1420.0e6 / (1 + self.lightcone_core.lightcone_slice_redshifts)
         
         if not np.all(frequencies == self.instrumental_frequencies):
-            #box = cw.interpolate_map_frequencies(box, frequencies, self.instrumental_frequencies)
-            box = self.interpolate_frequencies(box, frequencies, self.instrumental_frequencies)
+            box = cw.interpolate_map_frequencies(box, frequencies, self.instrumental_frequencies)
 
         box_size = self.lightcone_core.user_params.BOX_LEN / self.rad_to_cmpc(
             np.mean(self.lightcone_core.lightcone_slice_redshifts), self.lightcone_core.cosmo_params.cosmo)
@@ -570,7 +569,7 @@ class CoreInstrumental(CoreBase):
             box = self.tile_and_coarsen(box, box_size)
 
         # Convert to Jy/sr
-        box *= self.mK_to_Jy_per_sr(self.instrumental_frequencies)
+        box *= self.mK_to_Jy_per_sr(self.instrumental_frequencies)        
 
         return box
 
@@ -580,8 +579,7 @@ class CoreInstrumental(CoreBase):
 
         if not np.all(frequencies == self.instrumental_frequencies):
             logger.info(f"Interpolating frequencies for {cls.__class__.__name__}...")
-            #box = cw.interpolate_map_frequencies(box, frequencies, self.instrumental_frequencies)
-            box = self.interpolate_frequencies(box, frequencies, self.instrumental_frequencies)
+            box = cw.interpolate_map_frequencies(box, frequencies, self.instrumental_frequencies)
 
         # If the foregrounds don't match this sky grid, stitch and coarsen them.
         if cls.sky_size != self.sky_size or cls.n_cells != self.n_cells:
