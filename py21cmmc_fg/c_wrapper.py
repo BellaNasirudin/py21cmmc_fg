@@ -44,6 +44,10 @@ def interpolate_map_frequencies(map, freq_in, freq_out):
         np.ctypeslib.ndpointer(ctypes.c_double, flags="C_CONTIGUOUS"),
     ]
 
+    if(freq_in[0]>freq_in[-1]):
+        freq_in = freq_in[::-1]
+        map = np.flip(map,2)
+        
     if freq_out.min() < freq_in.min() or freq_out.max() > freq_in.max():
         raise ValueError(f"c interpolation routine cannot deal with out of bounds frequencies! Input: ({freq_in.min()},{freq_in.max()}). Output ({freq_out.min()},{freq_out.max()})")
 
@@ -72,7 +76,7 @@ def interpolate_map_frequencies(map, freq_in, freq_out):
         return out.reshape((nf_out, n_map)).T
     else:
         # TODO: it maybe should be transpose(2,0,1)
-        return out.reshape((nf_out, n_map, n_map)).T
+        return out.reshape((nf_out, n_map, n_map)).transpose(1,2,0)
 
 
 def stitch_and_coarsen_sky(sky, small_sky_size, big_sky_size, nsky_out):
