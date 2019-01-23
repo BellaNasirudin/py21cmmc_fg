@@ -46,8 +46,8 @@ DIM = 3 * HII_DIM
 BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
-nfreq = 100 if DEBUG else 200
-n_cells = 500 if DEBUG else 750
+nfreq = 100 #if DEBUG else 200
+n_cells = 500 #if DEBUG else 750
 
 # Likelihood options
 if DEBUG==2:
@@ -107,7 +107,7 @@ class CustomCoreInstrument(CoreInstrumental):
 class CustomLikelihood(LikelihoodInstrumental2D):
     def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[300, 100, 2][DEBUG],
                  **kwargs):
-        super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper,
+        super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper, u_min=10,
                          simulate=True, nthreads=6 if DEBUG else 12, nrealisations=nrealisations, ps_dim =2,
                          **kwargs)
 
