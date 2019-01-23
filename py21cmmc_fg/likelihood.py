@@ -723,7 +723,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             # Histogram the baselines in each grid but interpolate to find the visibility at the centre
             # TODO: Bella, I don't think this is correct. You don't want to interpolate to the centre, you just
             # want to add the incoherent visibilities together.
-            visgrid[:, :, j] = griddata((u.value , v.value), np.real(visibilities[:,j]),(cgrid_u,cgrid_v),method="linear") + griddata((u.value , v.value), np.imag(visibilities[:,j]),(cgrid_u,cgrid_v),method="linear") *1j
+            visgrid[:, :, j] = griddata((u.value , v.value), np.real(visibilities[:,j]),(cgrid_u,cgrid_v),method="nearest") + griddata((u.value , v.value), np.imag(visibilities[:,j]),(cgrid_u,cgrid_v),method="nearest") *1j
             
             # So, instead, my version (SGM). One for real, one for complex.
 #            tmp_rl = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].real)[0]
@@ -732,8 +732,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         # Take the average visibility (divide by weights), being careful not to divide by zero.
 #        visgrid[self.nbl_uvnu != 0] /= self.nbl_uvnu[self.nbl_uvnu != 0]
-        #visgrid[self.nbl_uvnu == 0] = 0
-        
+        visgrid[self.nbl_uvnu == 0] = 0       
+         
         return visgrid
 
     @cached_property
@@ -804,7 +804,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 weights[:, :, j] = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid])[0]
         else:
             weights = np.ones((self.n_uv, self.n_uv, len(self.frequencies)))
-            
+              
         return weights
 
     @cached_property

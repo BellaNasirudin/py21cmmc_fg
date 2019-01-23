@@ -35,7 +35,7 @@ core_fg = CorePointSourceForegrounds(S_min=1e-4, S_max=1e-4, gamma=0)
 likelihood = CustomLikelihood(
     datafile=[f'data/{model_name}.npz'],
     noisefile=[f'data/{model_name}.noise.npz'],
-    use_analytical_noise=False, u_max = 300
+    use_analytical_noise=False, u_max = 185, n_uv=750
 )
 
 if __name__ == "__main__":
