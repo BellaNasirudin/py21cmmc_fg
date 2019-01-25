@@ -5,7 +5,7 @@ Created on Fri Apr 20 16:54:22 2018
 """
 
 from powerbox.dft import fft, fftfreq
-from powerbox.tools import angular_average_nd, get_power
+from powerbox.tools import angular_average_nd
 import numpy as np
 from astropy import constants as const
 from astropy import units as un
@@ -340,13 +340,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         self.baselines_type = ctx.get("baselines_type")
         visibilities = ctx.get("visibilities")
-        p_signal = self.compute_power(visibilities)
+        p_signal, power1d = self.compute_power(visibilities)
 
         # Remember that the results of "simulate" can be used in two places: (i) the computeLikelihood method, and (ii)
         # as data saved to file. In case of the latter, it is useful to save extra variables to the dictionary to be
         # looked at for diagnosis, even though they are not required in computeLikelihood().
-        return [dict(p_signal=p_signal, baselines=self.baselines, frequencies=self.frequencies,
-                     u=self.u, eta = self.eta, nbl_uv=self.nbl_uv, nbl_uvnu=self.nbl_uvnu,
+        return [dict(p_signal=p_signal, power1d = power1d, baselines=self.baselines, frequencies=self.frequencies,
+                     u=self.u, eta = self.eta[self.eta > self.eta_min], nbl_uv=self.nbl_uv, nbl_uvnu=self.nbl_uvnu,
                      nbl_u=self.nbl_u, grid_weights=self.grid_weights)]
 
     def define_noise(self, ctx, model):
@@ -380,7 +380,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # every iter).
         if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
             if not self.use_analytical_noise:
-                mean, covariance = self.numerical_covariance(
+                mean, covariance, variance_1d = self.numerical_covariance(
                     nrealisations=self.nrealisations, nthreads=self._nthreads
                 )
             else:
@@ -401,9 +401,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 #                mean = np.repeat(self.noise_power_expectation, len(self.eta)).reshape((len(self.u), len(self.eta)))               
             mean = 0
             covariance = 0
-
-        print("MEAN NOISE ISS", mean)    
-        return [{"mean": mean, "covariance": covariance}]
+            variance_1d = 0
+ 
+        return [{"mean": mean, "covariance": covariance, "variance_1d":variance_1d}]
 
     def computeLikelihood(self, model):
         "Compute the likelihood"
@@ -527,17 +527,18 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         fnc = partial(_produce_mock, self, params)
 
         pool = multiprocessing.Pool(nthreads)
-        p = pool.map(fnc, np.arange(nrealisations))
+        power, power1d = zip(*pool.map(fnc, np.arange(nrealisations)))
 
-        mean = np.mean(p, axis=0)
+        mean = np.mean(power, axis=0)
         
+        var = np.var(np.array(power1d), axis = 0)
         # Note, this covariance *already* has thermal noise built in.
         if self.ps_dim == 2:
-            cov = [np.cov(x) for x in np.array(p).transpose((1, 2, 0))]
+            cov = [np.cov(x) for x in np.array(power).transpose((1, 2, 0))]
         else:
-            cov = np.var(np.array(p), axis = 0)
+            cov = var
         
-        return mean, cov
+        return mean, cov, var
 
     @staticmethod
     def analytical_covariance(uv, eta, nu_mid, bwidth, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, D=4.0, gamma=0.8,
@@ -643,11 +644,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         visgrid = self.frequency_fft(visgrid, self.frequencies, self.ps_dim, taper=self.frequency_taper)
 
         # Get 2D power from gridded vis.
-        power2d = self.get_power(visgrid)
+        power2d = self.get_power(visgrid, ps_dim = self.ps_dim)
+        
+        # Get also 1D power from gridded vis for comparison
+        power1d = self.get_power(visgrid, ps_dim = 1)
      
-        return power2d
+        return power2d, power1d
 
-    def get_power(self, gridded_vis):
+    def get_power(self, gridded_vis, ps_dim = 2):
         """
         Determine the 2D Power Spectrum of the observation.
 
@@ -664,29 +668,34 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         Returns
         -------
         P : float (n_eta, bins)-array
-            The cylindrical averaged (or 2D) Power Spectrum, with units Mpc**3.
+            The cylindrical averaged (or 2D) Power Spectrum, with units JyHz**2.
         """
         # The 3D power spectrum
         power_3d = np.absolute(gridded_vis) ** 2
-
-        if self.ps_dim == 2:
+        
+        if ps_dim == 2:
             P = angular_average_nd(
                 field = power_3d,
                 coords = [self.uvgrid, self.uvgrid, self.eta],
-                bins = self.u_edges, n= self.ps_dim,
+                bins = self.u_edges, n=ps_dim,
                 weights=self.nbl_uv, #weights,
                 bin_ave=False,
-            )[0][:,(len(self.eta) +2):]
+            )[0][:,int(len(self.eta)/2) +1:] #return the positive part
             
-        else:
+        elif ps_dim == 1:
+            # Need to stack the weights so it's 3d
+            nbl_uv = self.nbl_uv.copy()
+            nbl_uv_temp = self.nbl_uv.copy()
+            for ii in range(len(self.eta)-1):
+                nbl_uv = np.dstack((nbl_uv, nbl_uv_temp))
+            
             P = angular_average_nd(
                 field = power_3d,
                 coords = [self.uvgrid, self.uvgrid, self.eta],
-                bins = self.u_edges, #n= self.ps_dim,
-                weights=self.nbl_uv, #weights,
+                bins = self.u_edges, 
+                weights=nbl_uv,
                 bin_ave=False,
             )[0] 
-
         
         return P
 
@@ -823,11 +832,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         
         nbl_uv = 1 / np.sum(sm, axis=-1)
         nbl_uv[np.isinf(nbl_uv)] = 0
-           
-        if self.ps_dim==1:
-            nbl_uv_temp = nbl_uv.copy()
-            for ii in range(len(self.eta)-1):
-                nbl_uv = np.dstack((nbl_uv, nbl_uv_temp))
 
         return nbl_uv
 
@@ -852,8 +856,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         "Grid of positive frequency fourier-modes"
         dnu = self.frequencies[1] - self.frequencies[0]
         eta = fftfreq(len(self.frequencies), d=dnu, b=2 * np.pi)
-        if self.ps_dim ==2:
-            eta = eta[eta > self.eta_min]
+        
         return eta
 
     @cached_property
@@ -943,6 +946,6 @@ def _produce_mock(self, params,  i):
     self._instr_core.simulate_data(ctx)
 
     # And compute the power
-    power = self.compute_power(ctx.get("visibilities"))
+    power, power1d = self.compute_power(ctx.get("visibilities"))
 
-    return power
+    return power, power1d
