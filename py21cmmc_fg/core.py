@@ -494,9 +494,9 @@ class CoreInstrumental(CoreBase):
         "The sky size in lm co-ordinates. This is the size *all the way across*"
         size = 2 * self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
 
-        if np.sqrt(2) * size / 2 > 1:
-            logger.warn("Truncating the sky size from %s to 1/sqrt(2)" % size)
-            size = 2 / np.sqrt(2)
+#        if np.sqrt(2) * size / 2 > 1:
+#            logger.warn("Truncating the sky size from %s to 1/sqrt(2)" % size)
+#            size = 2 / np.sqrt(2)
 
         return size
 
