@@ -6,7 +6,7 @@ import os
 from powerbox.dft import fft
 from powerbox.tools import angular_average_nd
 
-DEBUG = int(os.environ.get("DEBUG", 1))
+DEBUG = int(os.environ.get("DEBUG",0))
 
 if DEBUG>2 or DEBUG<0:
     raise ValueError("DEBUG should be 0,1,2")
@@ -27,7 +27,7 @@ if DEBUG:
 freq_min = 150.0
 freq_max = 160.0
 z_step_factor = 1.04
-sky_size = 3.0   # in sigma
+sky_size = 4.5   # in sigma
 max_tile_n = 50
 taper = np.blackman
 integration_time = 3600000 #1000 hours of observation time
@@ -53,7 +53,7 @@ n_cells = 500 #if DEBUG else 750
 if DEBUG==2:
     n_ubins = 30
 else:
-    n_ubins = 60
+    n_ubins = 30
 
 # ============== END OF USER-SETTABLE STUFF
 
