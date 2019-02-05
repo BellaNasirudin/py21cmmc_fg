@@ -339,8 +339,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         Simulate datasets to which this very class instance should be compared.
         """
         self.baselines_type = ctx.get("baselines_type")
-        visibilities = ctx.get("visibilities")
-        p_signal, power1d = self.compute_power(visibilities)
+        visibilities1 = ctx.get("visibilities1")
+        visibilities2 = ctx.get("visibilities2")
+        p_signal, power1d = self.compute_power(visibilities1, visibilities2)
 
         # Remember that the results of "simulate" can be used in two places: (i) the computeLikelihood method, and (ii)
         # as data saved to file. In case of the latter, it is useful to save extra variables to the dictionary to be
@@ -380,12 +381,12 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # every iter).
         if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
             if not self.use_analytical_noise:
-                mean, covariance, variance_1d = self.numerical_covariance(
+                covariance, variance_1d = self.numerical_covariance(
                     nrealisations=self.nrealisations, nthreads=self._nthreads
                 )
             else:
                 # Still getting mean numerically for now...
-                mean = self.numerical_covariance(nrealisations=self.nrealisations, nthreads=self._nthreads)[0]
+#                mean = self.numerical_covariance(nrealisations=self.nrealisations, nthreads=self._nthreads)[0]
 
                 covariance = self.analytical_covariance(self.u, self.eta,
                                                         np.median(self.frequencies),
@@ -398,12 +399,11 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             # Only need thermal variance if we don't have foregrounds, otherwise it will be embedded in the
             # above foreground covariance... BUT NOT IF THE FOREGROUND COVARIANCE IS ANALYTIC!!
 #                covariance = self.get_thermal_covariance()
-#                mean = np.repeat(self.noise_power_expectation, len(self.eta)).reshape((len(self.u), len(self.eta)))               
-            mean = 0
+#                mean = np.repeat(self.noise_power_expectation, len(self.eta)).reshape((len(self.u), len(self.eta)))
             covariance = 0
             variance_1d = 0
- 
-        return [{"mean": mean, "covariance": covariance, "variance_1d":variance_1d}]
+        
+        return [{"covariance": covariance, "variance_1d":variance_1d}]
 
     def computeLikelihood(self, model):
         "Compute the likelihood"
@@ -422,12 +422,12 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 #            else:
             if self.foreground_cores :
                 # Normal case (foreground parameters are not being updated, or there are no foregrounds)
-                total_model += self.noise["mean"]
+                #total_model += self.noise["mean"]
                 total_cov = [x + y for x, y in zip(self.noise['covariance'], sig_cov)]
             else:
                 total_cov = sig_cov
     
-            lnl = lognormpdf(self.data['p_signal'], total_model, total_cov)
+            lnl = np.real(lognormpdf(self.data['p_signal'], total_model, total_cov))
         else:
             lnl = -0.5 * np.sum((self.data['p_signal'] - total_model )**2/(self.model_uncertainty * model['p_signal']) ** 2)
         print("LIKELIHOOD IS", lnl)
@@ -529,7 +529,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         pool = multiprocessing.Pool(nthreads)
         power, power1d = zip(*pool.map(fnc, np.arange(nrealisations)))
 
-        mean = np.mean(power, axis=0)
+#        mean = np.mean(power, axis=0)
         
         var = np.var(np.array(power1d), axis = 0)
         # Note, this covariance *already* has thermal noise built in.
@@ -538,7 +538,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             cov = var
         
-        return mean, cov, var
+        return cov, var
 
     @staticmethod
     def analytical_covariance(uv, eta, nu_mid, bwidth, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, D=4.0, gamma=0.8,
@@ -617,7 +617,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return cov
 
-    def compute_power(self, visibilities):
+    def compute_power(self, visibilities1, visibilities2 = None):
         """
         Compute the 2D power spectrum within the current context.
 
@@ -637,21 +637,25 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Grid visibilities only if we're not using "grid_centres"
 
         if self.baselines_type != "grid_centres":
-            visgrid = self.grid_visibilities(visibilities)
+            visgrid1 = self.grid_visibilities(visibilities1)
+            visgrid2 = self.grid_visibilities(visibilities2)
         else:
-            visgrid = visibilities
+            visgrid1 = visibilities1
+            visgrid2 = visibilities2
+            
         # Transform frequency axis
-        visgrid = self.frequency_fft(visgrid, self.frequencies, self.ps_dim, taper=self.frequency_taper)
+        visgrid1 = self.frequency_fft(visgrid1, self.frequencies, self.ps_dim, taper=self.frequency_taper)
+        visgrid2 = self.frequency_fft(visgrid2, self.frequencies, self.ps_dim, taper=self.frequency_taper)
 
         # Get 2D power from gridded vis.
-        power2d = self.get_power(visgrid, ps_dim = self.ps_dim)
+        power2d = self.get_power(visgrid1, visgrid2, ps_dim = self.ps_dim)
         
         # Get also 1D power from gridded vis for comparison
-        power1d = self.get_power(visgrid, ps_dim = 1)
+        power1d = self.get_power(visgrid1, visgrid2, ps_dim = 1)
      
         return power2d, power1d
 
-    def get_power(self, gridded_vis, ps_dim = 2):
+    def get_power(self, gridded_vis1, gridded_vis2 = None, ps_dim = 2):
         """
         Determine the 2D Power Spectrum of the observation.
 
@@ -671,7 +675,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             The cylindrical averaged (or 2D) Power Spectrum, with units JyHz**2.
         """
         # The 3D power spectrum
-        power_3d = np.absolute(gridded_vis) ** 2
+        if gridded_vis2 is None:
+            power_3d = np.absolute(gridded_vis1) ** 2
+        else:
+            power_3d = gridded_vis1 * gridded_vis2
         
         if ps_dim == 2:
             P = angular_average_nd(
@@ -716,34 +723,37 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         visgrid : (ngrid, ngrid, n_freq)-array
             The visibility grid, in Jy.
         """
-
-        ugrid = np.linspace(-self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
-                            self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
-
-        visgrid = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)), dtype=np.complex128)
-        
-        centres = (ugrid[1:] + ugrid[:-1])/2
-        cgrid_u, cgrid_v = np.meshgrid(centres, centres)
-        for j, f in enumerate(self.frequencies):
-            # U,V values change with frequency.
-            u = self.baselines[:, 0] * f / const.c
-            v = self.baselines[:, 1] * f / const.c
+        if visibilities is None:
+            return visibilities
+        else:
+    
+            ugrid = np.linspace(-self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
+                                self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
+    
+            visgrid = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)), dtype=np.complex128)
             
-            # Histogram the baselines in each grid but interpolate to find the visibility at the centre
-            # TODO: Bella, I don't think this is correct. You don't want to interpolate to the centre, you just
-            # want to add the incoherent visibilities together.
-            visgrid[:, :, j] = griddata((u.value , v.value), np.real(visibilities[:,j]),(cgrid_u,cgrid_v),method="nearest") + griddata((u.value , v.value), np.imag(visibilities[:,j]),(cgrid_u,cgrid_v),method="nearest") *1j
-            
-            # So, instead, my version (SGM). One for real, one for complex.
-#            tmp_rl = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].real)[0]
-#            tmp_im = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].imag)[0]
-#            visgrid[:, :, j] = tmp_rl + 1j * tmp_im
-
-        # Take the average visibility (divide by weights), being careful not to divide by zero.
-#        visgrid[self.nbl_uvnu != 0] /= self.nbl_uvnu[self.nbl_uvnu != 0]
-        visgrid[self.nbl_uvnu == 0] = 0       
-         
-        return visgrid
+            centres = (ugrid[1:] + ugrid[:-1])/2
+            cgrid_u, cgrid_v = np.meshgrid(centres, centres)
+            for j, f in enumerate(self.frequencies):
+                # U,V values change with frequency.
+                u = self.baselines[:, 0] * f / const.c
+                v = self.baselines[:, 1] * f / const.c
+                
+                # Histogram the baselines in each grid but interpolate to find the visibility at the centre
+                # TODO: Bella, I don't think this is correct. You don't want to interpolate to the centre, you just
+                # want to add the incoherent visibilities together.
+                visgrid[:, :, j] = griddata((u.value , v.value), np.real(visibilities[:,j]),(cgrid_u,cgrid_v),method="nearest") + griddata((u.value , v.value), np.imag(visibilities[:,j]),(cgrid_u,cgrid_v),method="nearest") *1j
+                
+                # So, instead, my version (SGM). One for real, one for complex.
+    #            tmp_rl = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].real)[0]
+    #            tmp_im = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].imag)[0]
+    #            visgrid[:, :, j] = tmp_rl + 1j * tmp_im
+    
+            # Take the average visibility (divide by weights), being careful not to divide by zero.
+    #        visgrid[self.nbl_uvnu != 0] /= self.nbl_uvnu[self.nbl_uvnu != 0]
+            visgrid[self.nbl_uvnu == 0] = 0       
+             
+            return visgrid
 
     @cached_property
     def uvgrid(self):
@@ -903,9 +913,11 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         eta : (nfreq/2)-array
             The eta-coordinates, without negative values.
         """
-        ft = fft(vis * taper(len(freq)), (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)[0]
-            
-        return ft
+        if vis is None:
+            return vis
+        else:
+            ft = fft(vis * taper(len(freq)), (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)[0]
+            return ft
 
     @staticmethod
     def hz_to_mpc(nu_min, nu_max, cosmo):
@@ -946,6 +958,6 @@ def _produce_mock(self, params,  i):
     self._instr_core.simulate_data(ctx)
 
     # And compute the power
-    power, power1d = self.compute_power(ctx.get("visibilities"))
+    power, power1d = self.compute_power(ctx.get("visibilities1"))
 
     return power, power1d

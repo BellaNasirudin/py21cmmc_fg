@@ -596,10 +596,12 @@ class CoreInstrumental(CoreBase):
         
         vis, new_sky = self._simulate_data(ctx)
         
-        # Add thermal noise using the mean beam area
-        vis = self.add_thermal_noise(vis)
+        # Add 2 realizations of thermal noise using the mean beam area
+        vis1 = self.add_thermal_noise(vis)
+        vis2 = self.add_thermal_noise(vis)
 
-        ctx.add("visibilities", vis)        
+        ctx.add("visibilities1", vis1)
+        ctx.add("visibilities2", vis2) 
         ctx.add("baselines", self.baselines)
         ctx.add("frequencies", self.instrumental_frequencies)
         ctx.add("new_sky", new_sky)
@@ -611,7 +613,7 @@ class CoreInstrumental(CoreBase):
 
         # Don't add thermal noise on each MCMC iter!!
 
-        ctx.add("visibilities", vis)        
+        ctx.add("visibilities1", vis)        
         ctx.add("baselines", self.baselines)
         ctx.add("frequencies", self.instrumental_frequencies)
         ctx.add("new_sky", new_sky)

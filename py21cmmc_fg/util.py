@@ -55,4 +55,4 @@ def lognormpdf(x, mu, cov):
     for i, (s, e) in enumerate(zip(sol, err[inds])):
         numerator += s.dot(e)
     
-    return -0.5 * numerator#(norm_coeff + numerator)
+    return -0.5 * (norm_coeff + numerator)

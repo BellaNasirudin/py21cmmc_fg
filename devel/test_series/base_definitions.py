@@ -105,7 +105,7 @@ class CustomCoreInstrument(CoreInstrumental):
 
 
 class CustomLikelihood(LikelihoodInstrumental2D):
-    def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[300, 100, 2][DEBUG],
+    def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[1000, 10, 2][DEBUG],
                  **kwargs):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper, u_min=10,
                          simulate=True, nthreads=6 if DEBUG else 12, nrealisations=nrealisations, ps_dim =2,
@@ -113,7 +113,7 @@ class CustomLikelihood(LikelihoodInstrumental2D):
 
     def store(self, model, storage):
         """Store stuff"""
-        storage['signal'] = model[0]['p_signal'] + self.noise['mean']
+        storage['signal'] = model[0]['p_signal'] #+ self.noise['mean']
         
         # Remember that the variance is actually the variance plus the model uncertainty
         sig_cov = self.get_signal_covariance(model[0]['p_signal'])
@@ -124,7 +124,7 @@ class CustomLikelihood(LikelihoodInstrumental2D):
         else:
             var = np.array([np.diag(p) + np.diag(s) for p,s in zip(self.noise['covariance'], sig_cov)])
             
-        storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal'])/np.sqrt(var)
+        storage['sigma'] = (self.data['p_signal'] - model[0]['p_signal'])/np.sqrt(var)
 
 
 def run_mcmc(*args, model_name, params=params, **kwargs):
