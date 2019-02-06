@@ -381,7 +381,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # every iter).
         if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
             if not self.use_analytical_noise:
-                covariance, variance_1d = self.numerical_covariance(
+                mean, covariance, variance_1d = self.numerical_covariance(
                     nrealisations=self.nrealisations, nthreads=self._nthreads
                 )
             else:
@@ -400,10 +400,11 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             # above foreground covariance... BUT NOT IF THE FOREGROUND COVARIANCE IS ANALYTIC!!
 #                covariance = self.get_thermal_covariance()
 #                mean = np.repeat(self.noise_power_expectation, len(self.eta)).reshape((len(self.u), len(self.eta)))
+            mean = 0
             covariance = 0
             variance_1d = 0
         
-        return [{"covariance": covariance, "variance_1d":variance_1d}]
+        return [{"mean": mean, "covariance": covariance, "variance_1d":variance_1d}]
 
     def computeLikelihood(self, model):
         "Compute the likelihood"
@@ -426,8 +427,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 total_cov = [x + y for x, y in zip(self.noise['covariance'], sig_cov)]
             else:
                 total_cov = sig_cov
-    
-            lnl = np.real(lognormpdf(self.data['p_signal'], total_model, total_cov))
+            
+            lnl = lognormpdf(self.data['p_signal'], total_model, total_cov)
         else:
             lnl = -0.5 * np.sum((self.data['p_signal'] - total_model )**2/(self.model_uncertainty * model['p_signal']) ** 2)
         print("LIKELIHOOD IS", lnl)
@@ -529,7 +530,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         pool = multiprocessing.Pool(nthreads)
         power, power1d = zip(*pool.map(fnc, np.arange(nrealisations)))
 
-#        mean = np.mean(power, axis=0)
+        mean = np.mean(power, axis=0)
         
         var = np.var(np.array(power1d), axis = 0)
         # Note, this covariance *already* has thermal noise built in.
@@ -538,7 +539,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             cov = var
         
-        return cov, var
+        return mean, cov, var
 
     @staticmethod
     def analytical_covariance(uv, eta, nu_mid, bwidth, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, D=4.0, gamma=0.8,
@@ -678,7 +679,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         if gridded_vis2 is None:
             power_3d = np.absolute(gridded_vis1) ** 2
         else:
-            power_3d = gridded_vis1 * np.conjugate(gridded_vis2)
+            power_3d = np.abs(np.real(gridded_vis1 * gridded_vis2))
         
         if ps_dim == 2:
             P = angular_average_nd(
