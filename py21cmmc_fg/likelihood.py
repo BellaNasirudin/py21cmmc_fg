@@ -679,7 +679,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         if gridded_vis2 is None:
             power_3d = np.absolute(gridded_vis1) ** 2
         else:
-            power_3d = np.abs(np.real(gridded_vis1 * gridded_vis2))
+            power_3d = gridded_vis1 * gridded_vis2
         
         if ps_dim == 2:
             P = angular_average_nd(
@@ -705,7 +705,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 bin_ave=False,
             )[0] 
         
-        return P
+        return np.abs(np.real(P))
 
     def grid_visibilities(self, visibilities):
         """
