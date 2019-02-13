@@ -1,5 +1,4 @@
 from numpy.linalg import slogdet, solve, LinAlgError
-from scipy.sparse import issparse
 import numpy as np
 import warnings
 

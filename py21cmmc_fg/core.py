@@ -7,18 +7,18 @@ Created on Tue Apr 17 14:13:39 2018
 Foreground core for 21cmmc
 
 """
-from scipy.integrate import quad
+import logging
+from os import path
+
 import numpy as np
+import py21cmmc as p21
 from astropy import constants as const
 from astropy import units as un
-from scipy.interpolate import RegularGridInterpolator, RectBivariateSpline
-from powerbox.dft import fft, fftfreq
 from powerbox import LogNormalPowerBox
-from os import path
-import py21cmmc as p21
+from powerbox.dft import fft, fftfreq
 from py21cmmc.mcmc.core import CoreBase, NotSetupError
-
-import logging
+from scipy.integrate import quad
+from scipy.interpolate import RegularGridInterpolator
 
 logger = logging.getLogger("21CMMC")
 
@@ -79,24 +79,11 @@ class ForegroundsBase(CoreBase):
 
     @cached_property
     def _instrumental_core(self):
-        try:
-            cores = self.LikelihoodComputationChain.getCoreModules()
-        except AttributeError:
-            raise NotSetupError
-
-        for m in cores:
+        for m in self._cores:
             if isinstance(m, CoreInstrumental):
                 return m
 
         raise AttributeError("No Instrumental Core is loaded")
-
-    @cached_property
-    def parameter_names(self):
-        """Names of the parameters being constrained in the MCMC run, if applicable."""
-        try:
-            return getattr(self.LikelihoodComputationChain.params, "keys", [])
-        except AttributeError:
-            raise NotSetupError
 
     @cached_property
     def _updating(self):
@@ -153,9 +140,9 @@ class ForegroundsBase(CoreBase):
         """
         Co-ordinates of the left-edge of sky cells along a side.
         """
-        return np.linspace(-self.sky_size / 2, self.sky_size / 2 , self.n_cells)
+        return np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
 
-    def simulate_data(self, ctx):
+    def convert_model_to_mock(self, ctx):
         """
         Simulate "observable" data (i.e. with noise included).
 
@@ -165,8 +152,8 @@ class ForegroundsBase(CoreBase):
             Much like a dictionary, but annoyingly different. Can contain the current parameters when passed in,
             and should be updated to contain the simulated data within this function.
         """
-        # Update our parameters, if they are being constrained.
-        self.model_params.update({k: v for k, v in ctx.getParams().items() if k in self.model_params})
+        # build_model_data is called before this method, so we do not need to
+        # update parameters. We just build the sky:
         fg_lightcone = self.build_sky(**self.model_params)
 
         # Get the foregrounds list out of the context, defaulting to empty list.
@@ -175,7 +162,7 @@ class ForegroundsBase(CoreBase):
         if len(fg) == 1:
             ctx.add("foregrounds", fg)
 
-    def __call__(self, ctx):
+    def build_model_data(self, ctx):
         """
         This doesn't add anything to the context, rather it just updates the parameters of the class appropriately.
         All foreground models are determined by an appropriate likelihood, calling the `power_spectrum_expectation`
@@ -184,21 +171,6 @@ class ForegroundsBase(CoreBase):
         # Update our parameters, if they are being constrained.
         if self._updating:
             self.model_params.update({k: v for k, v in ctx.getParams().items() if k in self.model_params})
-
-    # @staticmethod
-    # def get_sky_size(boxsize, redshifts, cosmo):
-    #     """Get the size of the simulated sky, across the zenith, in radians"""
-    #     return 2 * np.arctan(boxsize / (2 * float(cosmo.comoving_transverse_distance([np.mean(redshifts)]).value)))
-
-    # @property
-    # def sky_size(self):
-    #     """The size of the simulated sky, across the zenith, in radians"""
-    #     return self.get_sky_size(self.user_params.BOX_LEN, self.lightcone_slice_redshifts, self.cosmo_params.cosmo)
-    #
-    # @property
-    # def sky_size_lm(self):
-    #     """the size of the simulated sky, across the zenith, in lm"""
-    #     return 2 * np.sin(self.get_sky_size(self.user_params.BOX_LEN, self.lightcone_slice_redshifts, self.cosmo_params.cosmo) / 2)
 
     @property
     def redshifts(self):
@@ -471,39 +443,27 @@ class CoreInstrumental(CoreBase):
     @cached_property
     def lightcone_core(self):
         "Lightcone core module"
-        if not hasattr(self, "LikelihoodComputationChain"):
-            raise NotSetupError
-
-        for m in self.LikelihoodComputationChain.getCoreModules():
+        for m in self._cores:
             if isinstance(m, p21.mcmc.core.CoreLightConeModule):
                 return m  # Doesn't really matter which one, we only want to access basic properties.
 
-        # If nothing is returned, we don'e have a lightcone
+        # If nothing is returned, we don't have a lightcone
         raise AttributeError("no lightcone modules were loaded")
 
     @cached_property
     def foreground_cores(self):
         """List of foreground core modules"""
-        if not hasattr(self, "LikelihoodComputationChain"):
-            raise NotSetupError
-
-        return [m for m in self.LikelihoodComputationChain.getCoreModules() if isinstance(m, ForegroundsBase)]
+        return [m for m in self._cores if isinstance(m, ForegroundsBase)]
 
     @property
     def sky_size(self):
         "The sky size in lm co-ordinates. This is the size *all the way across*"
-        size = 2 * self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
-
-#        if np.sqrt(2) * size / 2 > 1:
-#            logger.warn("Truncating the sky size from %s to 1/sqrt(2)" % size)
-#            size = 2 / np.sqrt(2)
-
-        return size
+        return 2 * self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
 
     @cached_property
     def sky_coords(self):
         """Grid-coordinates of the (stitched/coarsened) simulation in lm units"""
-        return np.linspace(-self.sky_size / 2, self.sky_size / 2 , self.n_cells)
+        return np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
 
     @cached_property
     def cell_size(self):
@@ -529,35 +489,13 @@ class CoreInstrumental(CoreBase):
         """
         return cosmo.comoving_transverse_distance(redshift).value
 
-    def _simulate_data(self, ctx):
-        """
-        Generate a set of realistic visibilities (i.e. the output we expect from an interferometer).
-        """
-        # Get the basic signal lightcone out of context
-        lightcone = ctx.get("lightcone")
-
-        # Compute visibilities from EoR simulation
-        box = 0
-        if lightcone is not None:
-            box += self.prepare_sky_lightcone(lightcone.brightness_temp)
-      
-        # Now get foreground visibilities and add them in
-        foregrounds = ctx.get("foregrounds", [])
-
-        # Get the total brightness
-        for fg, cls in zip(foregrounds, self.foreground_cores):
-            box += self.prepare_sky_foreground(fg, cls)
-
-        vis = self.add_instrument(box)
-  
-        return vis, box
 
     def prepare_sky_lightcone(self, box):
         """
         Transform the raw brightness temperature of a simulated lightcone into the box structure required in this class.
-        """       
+        """
         frequencies = 1420.0e6 / (1 + self.lightcone_core.lightcone_slice_redshifts)
-        
+
         if not np.all(frequencies == self.instrumental_frequencies):
             box = cw.interpolate_map_frequencies(box, frequencies, self.instrumental_frequencies)
 
@@ -569,7 +507,7 @@ class CoreInstrumental(CoreBase):
             box = self.tile_and_coarsen(box, box_size)
 
         # Convert to Jy/sr
-        box *= self.mK_to_Jy_per_sr(self.instrumental_frequencies)        
+        box *= self.mK_to_Jy_per_sr(self.instrumental_frequencies)
 
         return box
 
@@ -585,36 +523,48 @@ class CoreInstrumental(CoreBase):
         if cls.sky_size != self.sky_size or cls.n_cells != self.n_cells:
             logger.info(f"Tiling sky for {cls.__class__.__name__}...")
             box = self.tile_and_coarsen(box, cls.sky_size)
-    
+
         return box
 
-    def simulate_data(self, ctx):
+    def convert_model_to_mock(self, ctx):
         """
         Generate a set of realistic visibilities (i.e. the output we expect from an interferometer) and add it to the
         context. Also, add the linear frequencies of the observation to the context.
         """
-        
-        vis, new_sky = self._simulate_data(ctx)
-        
+
+        vis = ctx.get("visibilities")
+
         # Add thermal noise using the mean beam area
         vis = self.add_thermal_noise(vis)
+        ctx.add("visibilities", vis)
 
-        ctx.add("visibilities", vis)        
+    def build_model_data(self, ctx):
+        """
+        Generate a set of realistic visibilities (i.e. the output we expect from an interferometer).
+        """
+        # Get the basic signal lightcone out of context
+        lightcone = ctx.get("lightcone")
+
+        # Compute visibilities from EoR simulation
+        box = 0
+        if lightcone is not None:
+            box += self.prepare_sky_lightcone(lightcone.brightness_temp)
+
+        # Now get foreground visibilities and add them in
+        foregrounds = ctx.get("foregrounds", [])
+
+        # Get the total brightness
+        for fg, cls in zip(foregrounds, self.foreground_cores):
+            box += self.prepare_sky_foreground(fg, cls)
+
+        vis = self.add_instrument(box)
+
+        ctx.add("visibilities", vis)
+        ctx.add("new_sky", box)
+
+        # TODO: These aren't strictly necessary
         ctx.add("baselines", self.baselines)
         ctx.add("frequencies", self.instrumental_frequencies)
-        ctx.add("new_sky", new_sky)
-        ctx.add("baselines_type", self.antenna_posfile)
-        return vis, new_sky
-
-    def __call__(self, ctx):
-        vis, new_sky = self._simulate_data(ctx)
-
-        # Don't add thermal noise on each MCMC iter!!
-
-        ctx.add("visibilities", vis)        
-        ctx.add("baselines", self.baselines)
-        ctx.add("frequencies", self.instrumental_frequencies)
-        ctx.add("new_sky", new_sky)
         ctx.add("baselines_type", self.antenna_posfile)
 
     @profile
@@ -623,7 +573,7 @@ class CoreInstrumental(CoreBase):
         if self.add_beam is True:
             attenuation = self.beam(self.instrumental_frequencies)
             lightcone *= attenuation
-        
+
         # Fourier transform image plane to UV plane.
         uvplane, uv = self.image_to_uv(lightcone, self.sky_size)
 
@@ -644,17 +594,17 @@ class CoreInstrumental(CoreBase):
     @cached_property
     def baselines(self):
         """The baselines of the array, in m"""
-#        if self._baselines is None:
-#            baselines = np.zeros((len(self.uv_grid) ** 2, 2))
-#            U, V = np.meshgrid(self.uv_grid, self.uv_grid)
-#            baselines[:, 0] = U.flatten() * (const.c / np.min(self.instrumental_frequencies))
-#            baselines[:, 1] = V.flatten() * (const.c / np.min(self.instrumental_frequencies))
-#            baselines = baselines * un.m
-#
-#            # Remove auto-correlations
-#            #baselines = baselines[baselines[:, 0] ** 2 + baselines[:, 1] ** 2 > 1.0 * un.m ** 2]
-#            return baselines
-#        else:
+        #        if self._baselines is None:
+        #            baselines = np.zeros((len(self.uv_grid) ** 2, 2))
+        #            U, V = np.meshgrid(self.uv_grid, self.uv_grid)
+        #            baselines[:, 0] = U.flatten() * (const.c / np.min(self.instrumental_frequencies))
+        #            baselines[:, 1] = V.flatten() * (const.c / np.min(self.instrumental_frequencies))
+        #            baselines = baselines * un.m
+        #
+        #            # Remove auto-correlations
+        #            #baselines = baselines[baselines[:, 0] ** 2 + baselines[:, 1] ** 2 > 1.0 * un.m ** 2]
+        #            return baselines
+        #        else:
         if self._baselines is not None:
             return self._baselines.value
         else:
@@ -705,10 +655,10 @@ class CoreInstrumental(CoreBase):
 
         # Create a meshgrid for the beam attenuation on sky array
         L, M = np.meshgrid(np.sin(self.sky_coords), np.sin(self.sky_coords))
-        
+
         attenuation = np.exp(
-            np.outer(-(L ** 2 + M ** 2), 1. / ( self.sigma(frequencies) ** 2)).reshape(
-                (self.n_cells, self.n_cells, len(frequencies)))) # got rid of a factor of 2
+            np.outer(-(L ** 2 + M ** 2), 1. / (self.sigma(frequencies) ** 2)).reshape(
+                (self.n_cells, self.n_cells, len(frequencies))))  # got rid of a factor of 2
 
         return attenuation
 
@@ -734,7 +684,7 @@ class CoreInstrumental(CoreBase):
 
         """
         wvlngth = const.c / (nu / un.s)
-        
+
         intensity = 2 * const.k_B * 1e-3 * un.K / wvlngth ** 2
 
         flux_density = 1e26 * intensity.to(un.W / (un.Hz * un.m ** 2))
@@ -801,9 +751,8 @@ class CoreInstrumental(CoreBase):
         frequencies = frequencies / un.s
 
         logger.info("Sampling the data onto baselines...")
-        
+
         for i, ff in enumerate(frequencies):
-            
             lamb = const.c / ff.to(1 / un.s)
             arr = np.zeros(np.shape(baselines))
             arr[:, 0] = (baselines[:, 0] / lamb).value
@@ -856,10 +805,10 @@ class CoreInstrumental(CoreBase):
         Equation comes from Trott 2016 (from Morales 2005)
         """
         df = self.instrumental_frequencies[1] - self.instrumental_frequencies[0]
-        
+
         sigma = 2 * 1e26 * const.k_B.value * self.Tsys / self.effective_collecting_area / np.sqrt(
             df * self.integration_time)
-        
+
         return (sigma ** 2).value
 
     @profile
@@ -890,7 +839,7 @@ class CoreInstrumental(CoreBase):
         if self.thermal_variance_baseline:
             logger.info("Adding thermal noise...")
             rl_im = np.random.normal(0, 1, (2,) + visibilities.shape)
-            
+
             # NOTE: we divide the variance by two here, because the variance of the absolute value of the
             #       visibility should be equal to thermal_variance_baseline, which is true if the variance of both
             #       the real and imaginary components are divided by two.
@@ -907,36 +856,36 @@ class CoreInstrumental(CoreBase):
         return sim
 
     @staticmethod
-    def interpolate_frequencies(data,freqs,linFreqs,uv_range=100):
+    def interpolate_frequencies(data, freqs, linFreqs, uv_range=100):
 
-        if(freqs[0]>freqs[-1]):
+        if (freqs[0] > freqs[-1]):
             freqs = freqs[::-1]
-            data = np.flip(data,2)
+            data = np.flip(data, 2)
 
         ncells = np.shape(data)[0]
-        #Create the xy data
-        xy = np.linspace(-uv_range/2.,uv_range/2.,ncells)
+        # Create the xy data
+        xy = np.linspace(-uv_range / 2., uv_range / 2., ncells)
 
         # generate the interpolation function
-        func = RegularGridInterpolator([xy,xy,freqs],data, bounds_error=False, fill_value=0)
+        func = RegularGridInterpolator([xy, xy, freqs], data, bounds_error=False, fill_value=0)
 
-	    #Create a meshgrid to interpolate the points
-        XY,YX,LINFREQS = np.meshgrid(xy,xy,linFreqs)
+        # Create a meshgrid to interpolate the points
+        XY, YX, LINFREQS = np.meshgrid(xy, xy, linFreqs)
 
-	    #Flatten the arrays so the can be put into pts array
-        XY=XY.flatten()
-        YX=YX.flatten()
+        # Flatten the arrays so the can be put into pts array
+        XY = XY.flatten()
+        YX = YX.flatten()
         LINFREQS = LINFREQS.flatten()
 
-        #Create the points to interpolate
+        # Create the points to interpolate
         numpts = XY.size
-        pts = np.zeros([numpts,3])
-        pts[:,0],pts[:,1],pts[:,2]=XY,YX,LINFREQS
+        pts = np.zeros([numpts, 3])
+        pts[:, 0], pts[:, 1], pts[:, 2] = XY, YX, LINFREQS
 
-	    #Interpolate the points
+        # Interpolate the points
         interpData = func(pts)
 
-	    # Reshape the data 
-        interpData=interpData.reshape(ncells,ncells,len(linFreqs))
+        # Reshape the data
+        interpData = interpData.reshape(ncells, ncells, len(linFreqs))
 
         return interpData
