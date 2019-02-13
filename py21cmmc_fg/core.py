@@ -11,7 +11,7 @@ from scipy.integrate import quad
 import numpy as np
 from astropy import constants as const
 from astropy import units as un
-from scipy.interpolate import RegularGridInterpolator
+from scipy.interpolate import RegularGridInterpolator, RectBivariateSpline
 from powerbox.dft import fft, fftfreq
 from powerbox import LogNormalPowerBox
 from os import path
@@ -363,8 +363,8 @@ class CoreInstrumental(CoreBase):
     """
 
     def __init__(self, *, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
-                 integration_time=120, Tsys=240, effective_collecting_area=16.0,
-                 sky_extent=3, n_cells=300, add_beam=False,
+                 integration_time=120, Tsys=240, effective_collecting_area=21.0,
+                 sky_extent=3, n_cells=300, add_beam=True,
                  **kwargs):
         """
         Parameters
@@ -494,9 +494,9 @@ class CoreInstrumental(CoreBase):
         "The sky size in lm co-ordinates. This is the size *all the way across*"
         size = 2 * self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
 
-        if np.sqrt(2) * size / 2 > 1:
-            logger.warn("Truncating the sky size from %s to 1/sqrt(2)" % size)
-            size = 2 / np.sqrt(2)
+#        if np.sqrt(2) * size / 2 > 1:
+#            logger.warn("Truncating the sky size from %s to 1/sqrt(2)" % size)
+#            size = 2 / np.sqrt(2)
 
         return size
 
@@ -535,21 +535,21 @@ class CoreInstrumental(CoreBase):
         """
         # Get the basic signal lightcone out of context
         lightcone = ctx.get("lightcone")
-        
+
         # Compute visibilities from EoR simulation
         box = 0
         if lightcone is not None:
             box += self.prepare_sky_lightcone(lightcone.brightness_temp)
-        
+      
         # Now get foreground visibilities and add them in
         foregrounds = ctx.get("foregrounds", [])
 
         # Get the total brightness
         for fg, cls in zip(foregrounds, self.foreground_cores):
             box += self.prepare_sky_foreground(fg, cls)
-        
-        vis = self.add_instrument(box)
 
+        vis = self.add_instrument(box)
+  
         return vis, box
 
     def prepare_sky_lightcone(self, box):
@@ -569,7 +569,7 @@ class CoreInstrumental(CoreBase):
             box = self.tile_and_coarsen(box, box_size)
 
         # Convert to Jy/sr
-        box *= self.mK_to_Jy_per_sr(self.instrumental_frequencies)
+        box *= self.mK_to_Jy_per_sr(self.instrumental_frequencies)        
 
         return box
 
@@ -593,9 +593,9 @@ class CoreInstrumental(CoreBase):
         Generate a set of realistic visibilities (i.e. the output we expect from an interferometer) and add it to the
         context. Also, add the linear frequencies of the observation to the context.
         """
-
+        
         vis, new_sky = self._simulate_data(ctx)
-
+        
         # Add thermal noise using the mean beam area
         vis = self.add_thermal_noise(vis)
 
@@ -633,7 +633,7 @@ class CoreInstrumental(CoreBase):
         else:
             visibilities = uvplane
             self.baselines = uv[1]
-        
+
         return visibilities
 
     @cached_property
@@ -704,7 +704,7 @@ class CoreInstrumental(CoreBase):
         """
 
         # Create a meshgrid for the beam attenuation on sky array
-        L, M = np.meshgrid(self.sky_coords, self.sky_coords)
+        L, M = np.meshgrid(np.sin(self.sky_coords), np.sin(self.sky_coords))
         
         attenuation = np.exp(
             np.outer(-(L ** 2 + M ** 2), 1. / ( self.sigma(frequencies) ** 2)).reshape(
@@ -734,7 +734,7 @@ class CoreInstrumental(CoreBase):
 
         """
         wvlngth = const.c / (nu / un.s)
-
+        
         intensity = 2 * const.k_B * 1e-3 * un.K / wvlngth ** 2
 
         flux_density = 1e26 * intensity.to(un.W / (un.Hz * un.m ** 2))
@@ -856,8 +856,10 @@ class CoreInstrumental(CoreBase):
         Equation comes from Trott 2016 (from Morales 2005)
         """
         df = self.instrumental_frequencies[1] - self.instrumental_frequencies[0]
+        
         sigma = 2 * 1e26 * const.k_B.value * self.Tsys / self.effective_collecting_area / np.sqrt(
             df * self.integration_time)
+        
         return (sigma ** 2).value
 
     @profile
@@ -888,7 +890,7 @@ class CoreInstrumental(CoreBase):
         if self.thermal_variance_baseline:
             logger.info("Adding thermal noise...")
             rl_im = np.random.normal(0, 1, (2,) + visibilities.shape)
-
+            
             # NOTE: we divide the variance by two here, because the variance of the absolute value of the
             #       visibility should be equal to thermal_variance_baseline, which is true if the variance of both
             #       the real and imaginary components are divided by two.
@@ -903,3 +905,38 @@ class CoreInstrumental(CoreBase):
         sim = cw.stitch_and_coarsen_sky(sim, sim_size, self.sky_size, self.n_cells)
 
         return sim
+
+    @staticmethod
+    def interpolate_frequencies(data,freqs,linFreqs,uv_range=100):
+
+        if(freqs[0]>freqs[-1]):
+            freqs = freqs[::-1]
+            data = np.flip(data,2)
+
+        ncells = np.shape(data)[0]
+        #Create the xy data
+        xy = np.linspace(-uv_range/2.,uv_range/2.,ncells)
+
+        # generate the interpolation function
+        func = RegularGridInterpolator([xy,xy,freqs],data, bounds_error=False, fill_value=0)
+
+	    #Create a meshgrid to interpolate the points
+        XY,YX,LINFREQS = np.meshgrid(xy,xy,linFreqs)
+
+	    #Flatten the arrays so the can be put into pts array
+        XY=XY.flatten()
+        YX=YX.flatten()
+        LINFREQS = LINFREQS.flatten()
+
+        #Create the points to interpolate
+        numpts = XY.size
+        pts = np.zeros([numpts,3])
+        pts[:,0],pts[:,1],pts[:,2]=XY,YX,LINFREQS
+
+	    #Interpolate the points
+        interpData = func(pts)
+
+	    # Reshape the data 
+        interpData=interpData.reshape(ncells,ncells,len(linFreqs))
+
+        return interpData

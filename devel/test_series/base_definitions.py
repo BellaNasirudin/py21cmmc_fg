@@ -6,7 +6,7 @@ import os
 from powerbox.dft import fft
 from powerbox.tools import angular_average_nd
 
-DEBUG = int(os.environ.get("DEBUG", 2))
+DEBUG = int(os.environ.get("DEBUG",0))
 
 if DEBUG>2 or DEBUG<0:
     raise ValueError("DEBUG should be 0,1,2")
@@ -27,10 +27,10 @@ if DEBUG:
 freq_min = 150.0
 freq_max = 160.0
 z_step_factor = 1.04
-sky_size = 3.0   # in sigma
+sky_size = 4.5   # in sigma
 max_tile_n = 50
 taper = np.blackman
-integration_time = 1200
+integration_time = 3600000 #1000 hours of observation time
 tile_diameter = 4.0
 
 # MCMC OPTIONS
@@ -46,14 +46,14 @@ DIM = 3 * HII_DIM
 BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
-nfreq = 60 if DEBUG else 100
-n_cells = 300 if DEBUG else 500
+nfreq = 100 #if DEBUG else 200
+n_cells = 500 #if DEBUG else 750
 
 # Likelihood options
 if DEBUG==2:
     n_ubins = 30
 else:
-    n_ubins = 60
+    n_ubins = 30
 
 # ============== END OF USER-SETTABLE STUFF
 
@@ -88,7 +88,8 @@ core_eor = CoreLightConeModule(
     store = {
         "lc_slices": _store_lightcone,
         "2DPS": _store_2dps
-    }
+    },
+    change_seed_every_iter = False
 )
 
 
@@ -106,20 +107,24 @@ class CustomCoreInstrument(CoreInstrumental):
 class CustomLikelihood(LikelihoodInstrumental2D):
     def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[300, 100, 2][DEBUG],
                  **kwargs):
-        super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper,
-                         simulate=True, nthreads=6 if DEBUG else 12, nrealisations=nrealisations,
+        super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper, u_min=10,
+                         simulate=True, nthreads=6 if DEBUG else 12, nrealisations=nrealisations, ps_dim =2,
                          **kwargs)
 
     def store(self, model, storage):
         """Store stuff"""
         storage['signal'] = model[0]['p_signal'] + self.noise['mean']
-
+        
         # Remember that the variance is actually the variance plus the model uncertainty
-#        sig_cov = self.get_signal_covariance(model[0]['p_signal'])
-#
-#        # Add a "number of sigma" entry
-#        var = np.array([np.diag(p) + np.diag(s) for p,s in zip(self.noise['covariance'], sig_cov)])
-#        storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal'])/np.sqrt(var)
+        sig_cov = self.get_signal_covariance(model[0]['p_signal'])
+        
+        # Add a "number of sigma" entry only if cov is not zero
+        if (self.noise['covariance'] == 0) or (self.noise['covariance'] is None):
+            var = 0
+        else:
+            var = np.array([np.diag(p) + np.diag(s) for p,s in zip(self.noise['covariance'], sig_cov)])
+            
+        storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal'])/np.sqrt(var)
 
 
 def run_mcmc(*args, model_name, params=params, **kwargs):
