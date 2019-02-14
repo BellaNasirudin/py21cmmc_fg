@@ -29,24 +29,20 @@ z_step_factor = 1.04
 sky_size = 4.5   # in sigma
 max_tile_n = 50
 taper = np.blackman
-integration_time = 3600000 #1000 hours of observation time
-tile_diameter = 4.0
+integration_time = 3600000 # 1000 hours of observation time
+tile_diameter = 25.0 # SKA
+nfreq = 100
+n_cells = 500
 
 # MCMC OPTIONS
-params=dict(  # Parameter dict as described above.
-            HII_EFF_FACTOR=[30.0, 10.0, 50.0, 3.0],
-            ION_Tvir_MIN=[4.7, 2, 8, 0.1],
-        )
+params=dict(
+    HII_EFF_FACTOR=[30.0, 10.0, 50.0, 3.0],
+    ION_Tvir_MIN=[4.7, 2, 8, 0.1],
+)
 
 
 # ----- Options that differ between DEBUG levels --------
 HII_DIM = [250, 125, 80][DEBUG]
-DIM = 3 * HII_DIM
-BOX_LEN = 3 * HII_DIM
-
-# Instrument Options
-nfreq = 100 #if DEBUG else 200
-n_cells = 500 #if DEBUG else 750
 
 # Likelihood options
 if DEBUG==2:
@@ -55,6 +51,8 @@ else:
     n_ubins = 30
 
 # ============== END OF USER-SETTABLE STUFF
+DIM = 3 * HII_DIM
+BOX_LEN = 3 * HII_DIM
 
 z_min = 1420./freq_max - 1
 z_max = 1420./freq_min - 1
@@ -99,15 +97,17 @@ class CustomCoreInstrument(CoreInstrumental):
                  **kwargs):
         super().__init__(freq_max=freq_max, freq_min=freq_min,
                          nfreq=nfreq, tile_diameter=tile_diameter, integration_time=integration_time,
-                         sky_extent=sky_size, n_cells=n_cells,
+                         sky_extent=sky_size, n_cells=n_cells, split_even_odd=True,
                          **kwargs)
 
 
 class CustomLikelihood(LikelihoodInstrumental2D):
     def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[300, 100, 2][DEBUG],
+                 model_uncertainty=0, simulate=True,
                  **kwargs):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper, u_min=10,
-                         simulate=True, nthreads=6 if DEBUG else 12, nrealisations=nrealisations, ps_dim =2,
+                         simulate=simulate, nthreads=6 if DEBUG else 12, nrealisations=nrealisations, ps_dim =2,
+                         model_uncertainty=model_uncertainty,
                          **kwargs)
 
     def store(self, model, storage):

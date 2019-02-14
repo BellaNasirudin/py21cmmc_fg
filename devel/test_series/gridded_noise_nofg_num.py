@@ -12,17 +12,8 @@ Here are the tests:
 
 """
 from base_definitions import CustomCoreInstrument, CustomLikelihood, core_eor, run_mcmc, DEBUG
-from py21cmmc_fg.core import ForegroundsBase
-import numpy as np
 
 model_name = "InstrumentalGridTestNoiseNumerical"
-
-class NoFG(ForegroundsBase):
-    def build_sky(self):
-        return np.zeros((self.n_cells, self.n_cells, len(self.frequencies)))
-
-nofg = NoFG() #This is used *only* to trigger the numerical covariance. There should be a better way of doing this.
-
 
 core_instr = CustomCoreInstrument(
     antenna_posfile = 'grid_centres', # use a special grid of *baselines*.
@@ -36,7 +27,7 @@ likelihood = CustomLikelihood(
 
 if __name__ == "__main__":
     chain = run_mcmc(
-        [core_eor, nofg, core_instr], likelihood,
+        [core_eor, core_instr], likelihood,
         model_name=model_name,             # Filename of main chain output
     )
 

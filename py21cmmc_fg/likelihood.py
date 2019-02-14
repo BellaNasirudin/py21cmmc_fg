@@ -11,6 +11,7 @@ from functools import partial
 import numpy as np
 from astropy import constants as const
 from astropy import units as un
+from astropy.cosmology import z_at_value
 from cached_property import cached_property
 from powerbox.dft import fft, fftfreq
 from powerbox.tools import angular_average_nd
@@ -110,6 +111,11 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         if self.noise:
             self.noise = self.noise[0]
 
+    @property
+    def use_grid_centres(self):
+        """Whether the baselines are just UV grid positions."""
+        return self._instr_core.antenna_posfile == 'grid_centres'
+
     @cached_property
     def n_uv(self):
         """The number of cells on a side of the (square) UV grid"""
@@ -118,20 +124,58 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             return self._n_uv
 
+    @cached_property
+    def admissable_u_range(self):
+        """A tuple giving the range of u which is sensible given the original lightcone simulation"""
+        # get the angular size of the lightcone in rad.
+        size = self._lightcone_core.user_params.BOX_LEN / self._instr_core.rad_to_cmpc(
+            self._lightcone_core.redshift, self._lightcone_core.cosmo_params.cosmo
+        )
+
+        # Return (1/L, N/2L), which is correct for the b=2*pi convention.
+        return 1/size, self._lightcone_core.user_params.HII_DIM/(2*size)
+
+    @cached_property
+    def admissable_eta_range(self):
+        """A tuple giving the range of eta which is sensible given the original lightcone simulation"""
+        # First we get the largest frequency channel width actually contained in
+        # the original simulation (so its redshift slices).
+        lightcone_freqs = 1420.e6/(1 + self._lightcone_core.lightcone_slice_redshifts)
+        largest_df = np.max(np.abs(lightcone_freqs[1:] - lightcone_freqs[:-1]))
+
+        # Now get the total bandwidth of the simulation. Remember the
+        # simulation keeps repeating itself in redshift, so we take only the
+        # width of a single coeval box. It also depends on which redshift we're
+        # at. We go for the one with the smallest bandwidth to be conservative,
+        # so that's at the highest *instrumental* redshift.
+        upper_redshift = 1420.e6/ self._instr_core.instrumental_frequencies.min() - 1
+        upper_d = self._lightcone_core.cosmo_params.cosmo.comoving_distance(upper_redshift)
+        lower_d = upper_d - self._lightcone_core.user_params.BOX_LEN * upper_d.unit
+
+        lower_redshift = z_at_value(self._lightcone_core.cosmo_params.cosmo.comoving_distance, lower_d, zmin=4, zmax=upper_redshift)
+
+        total_bandwidth_of_sim = 1420.e6/(1 + lower_redshift) - 1420.e6/(1 + upper_redshift)
+
+        return 1/total_bandwidth_of_sim, 1/(2*largest_df)
+
     def reduce_data(self, ctx):
         """
         Simulate datasets to which this very class instance should be compared.
         """
-        self.baselines_type = ctx.get("baselines_type")
         visibilities = ctx.get("visibilities")
+
         p_signal, power1d = self.compute_power(visibilities)
 
-        # Remember that the results of "simulate" can be used in two places: (i) the computeLikelihood method, and (ii)
-        # as data saved to file. In case of the latter, it is useful to save extra variables to the dictionary to be
-        # looked at for diagnosis, even though they are not required in computeLikelihood().
-        return [dict(p_signal=p_signal, power1d=power1d, baselines=self.baselines, frequencies=self.frequencies,
-                     u=self.u, eta=self.eta[self.eta > self.eta_min], nbl_uv=self.nbl_uv, nbl_uvnu=self.nbl_uvnu,
-                     nbl_u=self.nbl_u, grid_weights=self.grid_weights)]
+        # Remember that the results of "reduce_data" can be used in two places: (i) the computeLikelihood method, and
+        # (ii) as data saved to file. In case of the latter, it is useful to save extra variables to the dictionary to
+        # be looked at for diagnosis, even though they are not required in computeLikelihood().
+        return [
+            dict(
+                p_signal=p_signal, power1d=power1d, baselines=self.baselines, frequencies=self.frequencies,
+                u=self.u, eta=self.eta[self.eta > self.eta_min], nbl_uv=self.nbl_uv, nbl_uvnu=self.nbl_uvnu,
+                nbl_u=self.nbl_u, grid_weights=self.grid_weights, uv_grid=self.uvgrid
+            )
+        ]
 
     def define_noise(self, ctx, model):
         """
@@ -162,7 +206,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         # Only save the mean/cov if we have foregrounds, and they don't update every iteration (otherwise, get them
         # every iter).
-        if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
+        if not any([fg._updating for fg in self.foreground_cores]):
             if not self.use_analytical_noise:
                 mean, covariance, variance_1d = self.numerical_covariance(
                     nrealisations=self.nrealisations, nthreads=self._nthreads
@@ -197,6 +241,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         total_model = model['p_signal']
 
         if self.ps_dim == 2:
+            # Note that for now, we will always set this to zero, because
+            # we don't know how to properly account for modelling uncertainty.
             sig_cov = self.get_signal_covariance(model['p_signal'])
             # If we need to get the foreground covariance
             #            if self.foreground_cores and any([fg._updating for fg in self.foreground_cores]):
@@ -204,12 +250,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             #                total_model += mean
             #
             #            else:
-            if self.foreground_cores:
-                # Normal case (foreground parameters are not being updated, or there are no foregrounds)
-                total_model += self.noise["mean"]
-                total_cov = [x + y for x, y in zip(self.noise['covariance'], sig_cov)]
-            else:
-                total_cov = sig_cov
+
+            total_model += self.noise["mean"]
+            total_cov = [x + y for x, y in zip(self.noise['covariance'], sig_cov)]
 
             lnl = lognormpdf(self.data['p_signal'], total_model, total_cov)
         else:
@@ -287,7 +330,11 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
     def numerical_covariance(self, params={}, nrealisations=200, nthreads=1):
         """
-        Calculate the covariance of the foregrounds.
+        Calculate the mean and covariance of the mock data as a whole, given
+        a set of parameters.
+
+        Note that the covariance given here is only the covariance between
+        line-of-sight modes, thus appearing as a block-diagonal matrix.
     
         Parameters
         ----------
@@ -297,7 +344,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         nrealisations: int, optional
             Number of realisations to find the covariance.
         
-        Output
+        Returns
         ------
         mean: (nperp, npar)-array
             The mean 2D power spectrum of the foregrounds.
@@ -307,6 +354,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             Else it is 0
         """
 
+        if not self._instr_core.split_even_odd:
+            raise ValueError("Note that the numerical_covariance is currently wrong if not doing split_even_odd")
+
         if nrealisations < 2:
             raise ValueError("nrealisations must be more than one")
 
@@ -315,12 +365,25 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         fnc = partial(_produce_mock, self, params)
 
         pool = multiprocessing.Pool(nthreads)
+
+        # Here we ensure that the lightcone will write out its results, so it
+        # just has to read them in, rather than reproducing the EoR every iteration.
+        self._lightcone_core.io_options['cache_ionize'] = True
         power, power1d = zip(*pool.map(fnc, np.arange(nrealisations)))
 
-        mean = np.mean(power, axis=0)
+        # But we turn it off again, since we don't want to write EVERY iteration
+        # with different parameters!!
+        self._lightcone_core.io_options['cache_ionize'] = False
+
+        if self._instr_core.split_even_odd:
+            mean = 0
+        else:
+            # TODO: this is wrong! need to subtract mean 21cm power.
+            mean = np.mean(power, axis=0)
 
         var = np.var(np.array(power1d), axis=0)
-        # Note, this covariance *already* has thermal noise built in.
+
+        # Note, this covariance has *everything* in it.
         if self.ps_dim == 2:
             cov = [np.cov(x) for x in np.array(power).transpose((1, 2, 0))]
         else:
@@ -422,14 +485,22 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         coords : list of 2 arrays
             The first is kperp, and the second is kpar.
         """
-        # Grid visibilities only if we're not using "grid_centres"
+        def get_visgrid(vis):
+            if not self.use_grid_centres:
+                # only grid visibilities if we know they don't just correspond
+                # to the grid positions.
+                vis = self.grid_visibilities(vis)
 
-        if self.baselines_type != "grid_centres":
-            visgrid = self.grid_visibilities(visibilities)
+            # Transform frequency axis
+            return self.frequency_fft(vis, self.frequencies, taper=self.frequency_taper)
+
+        # If we have split visibilities, we need to FT them individually.
+        if len(visibilities) == 2:
+            visgrid = []
+            for vis in visibilities:
+                visgrid.append(get_visgrid(vis))
         else:
-            visgrid = visibilities
-        # Transform frequency axis
-        visgrid = self.frequency_fft(visgrid, self.frequencies, self.ps_dim, taper=self.frequency_taper)
+            visgrid = get_visgrid(visibilities)
 
         # Get 2D power from gridded vis.
         power2d = self.get_power(visgrid, ps_dim=self.ps_dim)
@@ -459,9 +530,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             The cylindrical averaged (or 2D) Power Spectrum, with units JyHz**2.
         """
         # The 3D power spectrum
-        power_3d = np.absolute(gridded_vis) ** 2
+        if len(gridded_vis) == 2:
+            power_3d = np.real(gridded_vis[0]*np.conj(gridded_vis[1]))
+        else:
+            power_3d = np.absolute(gridded_vis) ** 2
 
         if ps_dim == 2:
+            print(self.uvgrid.shape)
             P = angular_average_nd(
                 field=power_3d,
                 coords=[self.uvgrid, self.uvgrid, self.eta],
@@ -540,19 +615,18 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         Centres of the uv grid along a side.
         """
-        if self.baselines_type != "grid_centres":
+        if self.use_grid_centres:
+            return self._instr_core.uv_grid
+        else:
             ugrid = np.linspace(
                 -self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
                 self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
             return (ugrid[1:] + ugrid[:-1]) / 2
-        else:
-            # return the uv
-            return self.baselines
 
     @cached_property
     def uv_max(self):
         if self._uv_max is None:
-            if self.baselines_type != "grid_centres":
+            if not self.use_grid_centres:
                 return (max([np.abs(b).max() for b in self.baselines]) * self.frequencies.min() / const.c).value
             else:
                 # return the uv
@@ -590,7 +664,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     def nbl_uvnu(self):
         """The number of baselines in each u,v,nu cell"""
 
-        if self.baselines_type != "grid_centres":
+        if not self.use_grid_centres:
             ugrid = np.linspace(
                 -self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
                 self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
@@ -671,7 +745,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         return self._instr_core.thermal_variance_baseline ** 2 * self.grid_weights / self.nbl_u ** 2
 
     @staticmethod
-    def frequency_fft(vis, freq, dim, taper=np.ones_like):
+    def frequency_fft(vis, freq, taper=np.ones_like):
         """
         Fourier-transform a gridded visibility along the frequency axis.
 
@@ -713,13 +787,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     def sr_to_mpc2(z, cosmo):
         """
         Conversion factor from steradian to Mpc^2 at a given redshift.
-        Parameters
-        ----------
-        z_mid
-
-        Returns
-        -------
-
         """
         return cosmo.comoving_distance(z) / (1 * un.sr)
 
@@ -728,14 +795,8 @@ def _produce_mock(self, params, i):
     """Produces a mock power spectrum for purposes of getting numerical_covariances"""
     # Create an empty context with the given parameters.
     np.random.seed(i)
-    ctx = self.chain.createChainContext(params)
 
-    # For each realisation, run every foreground core (not the signal!)
-    for core in self.foreground_cores:
-        core.simulate_mock(ctx)
-
-    # And turn them into visibilities
-    self._instr_core.simulate_mock(ctx)
+    ctx = self.chain.simulate_mock(params)
 
     # And compute the power
     power, power1d = self.compute_power(ctx.get("visibilities"))

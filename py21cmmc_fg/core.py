@@ -16,7 +16,7 @@ from astropy import constants as const
 from astropy import units as un
 from powerbox import LogNormalPowerBox
 from powerbox.dft import fft, fftfreq
-from py21cmmc.mcmc.core import CoreBase, NotSetupError
+from py21cmmc.mcmc.core import CoreBase
 from scipy.integrate import quad
 from scipy.interpolate import RegularGridInterpolator
 
@@ -336,7 +336,7 @@ class CoreInstrumental(CoreBase):
 
     def __init__(self, *, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
                  integration_time=120, Tsys=240, effective_collecting_area=21.0,
-                 sky_extent=3, n_cells=300, add_beam=True,
+                 sky_extent=3, n_cells=300, add_beam=True, split_even_odd=False,
                  **kwargs):
         """
         Parameters
@@ -381,6 +381,9 @@ class CoreInstrumental(CoreBase):
             is the same number of cells as the underlying simulation/foreground. If set to zero, no coarsening will be
             performed.
 
+        split_even_odd : bool, optional
+            Whether to create visibilities for a second set of baselines, redundant with the first, that have independent
+            thermal noise.
 
         Notes
         -----
@@ -408,8 +411,9 @@ class CoreInstrumental(CoreBase):
         self.integration_time = integration_time
         self.Tsys = Tsys
         self.add_beam = add_beam
+        self.split_even_odd = split_even_odd
 
-        self.effective_collecting_area = effective_collecting_area * un.m ** 2
+        self.effective_collecting_area = effective_collecting_area  * un.m ** 2
 
         if self.effective_collecting_area > self.tile_diameter ** 2:
             warnings.warn("The effective collecting area (%s) is greater than the tile diameter squared!")
@@ -474,7 +478,8 @@ class CoreInstrumental(CoreBase):
     def cell_area(self):
         return self.cell_size ** 2
 
-    def rad_to_cmpc(self, redshift, cosmo):
+    @staticmethod
+    def rad_to_cmpc(redshift, cosmo):
         """
         Conversion factor between Mpc and radians for small angles.
 
@@ -488,7 +493,6 @@ class CoreInstrumental(CoreBase):
             Conversion factor which gives the size in radians of a 1 Mpc object at given redshift.
         """
         return cosmo.comoving_transverse_distance(redshift).value
-
 
     def prepare_sky_lightcone(self, box):
         """
@@ -535,8 +539,13 @@ class CoreInstrumental(CoreBase):
         vis = ctx.get("visibilities")
 
         # Add thermal noise using the mean beam area
-        vis = self.add_thermal_noise(vis)
-        ctx.add("visibilities", vis)
+        vis1 = self.add_thermal_noise(vis)
+
+        if self.split_even_odd:
+            vis2 = self.add_thermal_noise(vis)
+            vis1 = (vis1, vis2)
+
+        ctx.add("visibilities", vis1)
 
     def build_model_data(self, ctx):
         """
@@ -565,7 +574,6 @@ class CoreInstrumental(CoreBase):
         # TODO: These aren't strictly necessary
         ctx.add("baselines", self.baselines)
         ctx.add("frequencies", self.instrumental_frequencies)
-        ctx.add("baselines_type", self.antenna_posfile)
 
     @profile
     def add_instrument(self, lightcone):
@@ -582,7 +590,6 @@ class CoreInstrumental(CoreBase):
             visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
         else:
             visibilities = uvplane
-            self.baselines = uv[1]
 
         return visibilities
 
@@ -594,21 +601,19 @@ class CoreInstrumental(CoreBase):
     @cached_property
     def baselines(self):
         """The baselines of the array, in m"""
-        #        if self._baselines is None:
-        #            baselines = np.zeros((len(self.uv_grid) ** 2, 2))
-        #            U, V = np.meshgrid(self.uv_grid, self.uv_grid)
-        #            baselines[:, 0] = U.flatten() * (const.c / np.min(self.instrumental_frequencies))
-        #            baselines[:, 1] = V.flatten() * (const.c / np.min(self.instrumental_frequencies))
-        #            baselines = baselines * un.m
-        #
-        #            # Remove auto-correlations
-        #            #baselines = baselines[baselines[:, 0] ** 2 + baselines[:, 1] ** 2 > 1.0 * un.m ** 2]
-        #            return baselines
-        #        else:
-        if self._baselines is not None:
-            return self._baselines.value
+        if self._baselines is None:
+            baselines = np.zeros((len(self.uv_grid) ** 2, 2))
+            U, V = np.meshgrid(self.uv_grid, self.uv_grid)
+            baselines[:, 0] = U.flatten() #* (const.c / np.min(self.instrumental_frequencies))
+            baselines[:, 1] = V.flatten() #* (const.c / np.min(self.instrumental_frequencies))
+            baselines = baselines
+
+            # Remove auto-correlations
+            # baselines = baselines[baselines[:, 0] ** 2 + baselines[:, 1] ** 2 > 1.0 * un.m ** 2]
+
+            return baselines
         else:
-            return self._baselines
+            return self._baselines.value
 
     def sigma(self, frequencies):
         "The Gaussian beam width at each frequency"
@@ -713,7 +718,7 @@ class CoreInstrumental(CoreBase):
         uv_scale : list of two arrays.
             The u and v co-ordinates of the uvsky, respectively. Units are inverse of L.
         """
-        logger.info("Converting to UV space...")
+        logger.debug("Converting to UV space...")
         ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
         return ft, uv_scale
 
@@ -750,7 +755,7 @@ class CoreInstrumental(CoreBase):
 
         frequencies = frequencies / un.s
 
-        logger.info("Sampling the data onto baselines...")
+        logger.debug("Sampling the data onto baselines...")
 
         for i, ff in enumerate(frequencies):
             lamb = const.c / ff.to(1 / un.s)
@@ -806,10 +811,10 @@ class CoreInstrumental(CoreBase):
         """
         df = self.instrumental_frequencies[1] - self.instrumental_frequencies[0]
 
-        sigma = 2 * 1e26 * const.k_B.value * self.Tsys / self.effective_collecting_area / np.sqrt(
-            df * self.integration_time)
+        sigma = self.mK_to_Jy_per_sr(self.instrumental_frequencies) * self.Tsys * 1e3
+        sigma *= self.beam_area(self.instrumental_frequencies)/ np.sqrt(df * self.integration_time)
 
-        return (sigma ** 2).value
+        return sigma ** 2
 
     @profile
     def add_thermal_noise(self, visibilities):
@@ -836,8 +841,8 @@ class CoreInstrumental(CoreBase):
             The visibilities at each baseline and frequency with the thermal noise from the sky.
 
         """
-        if self.thermal_variance_baseline:
-            logger.info("Adding thermal noise...")
+        if np.any(self.thermal_variance_baseline>0):
+            logger.debug("Adding thermal noise...")
             rl_im = np.random.normal(0, 1, (2,) + visibilities.shape)
 
             # NOTE: we divide the variance by two here, because the variance of the absolute value of the
@@ -850,7 +855,7 @@ class CoreInstrumental(CoreBase):
     @profile
     def tile_and_coarsen(self, sim, sim_size):
         """"""
-        logger.info("Tiling and coarsening boxes...")
+        logger.debug("Tiling and coarsening boxes...")
         sim = cw.stitch_and_coarsen_sky(sim, sim_size, self.sky_size, self.n_cells)
 
         return sim
