@@ -369,7 +369,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Here we ensure that the lightcone will write out its results, so it
         # just has to read them in, rather than reproducing the EoR every iteration.
         self._lightcone_core.io_options['cache_ionize'] = True
-        power, power1d = zip(*pool.map(fnc, np.arange(nrealisations)))
+        power, power1d = zip(*pool.map(fnc, np.random.randint(0, size=nrealisations)))
 
         # But we turn it off again, since we don't want to write EVERY iteration
         # with different parameters!!
