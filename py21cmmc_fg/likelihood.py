@@ -216,8 +216,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             lnl = -0.5 * np.sum(
                 (self.data['p_signal'] - total_model) ** 2 / (self.model_uncertainty * model['p_signal']) ** 2)
 
-        logger.debug("LIKELIHOOD IS", lnl)
-
         return lnl
 
     @cached_property
