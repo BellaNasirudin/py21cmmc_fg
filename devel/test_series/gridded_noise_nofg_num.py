@@ -4,7 +4,7 @@ The second test (b)in a series of tests to prove that this code works.
 Here are the tests:
 
 1. Gridded baselines, no thermal noise, no foregrounds
-2. ** Gridded baselines, thermal noise, no foregrounds
+2. Gridded baselines, thermal noise, no foregrounds
 2b. ** Gridded baselines, thermal noise, no foregrounds (numerically calculated noise).
 3. MWA baselines, thermal noise, no foregrounds
 4. Gridded baselines, thermal noise, point-source foregrounds

@@ -14,7 +14,6 @@ if DEBUG>2 or DEBUG<0:
 import logging
 
 logger = logging.getLogger("21CMMC")
-
 logger.setLevel([logging.DEBUG, logging.INFO, logging.WARNING][-DEBUG])
 
 if DEBUG:
