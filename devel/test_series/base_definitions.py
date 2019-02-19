@@ -124,12 +124,11 @@ class CustomLikelihood(LikelihoodInstrumental2D):
         sig_cov = self.get_signal_covariance(model[0]['p_signal'])
 
         # Add a "number of sigma" entry only if cov is not zero
-        if (self.noise['covariance'] == 0) or (self.noise['covariance'] is None):
+        if not hasattr(self.noise['covariance'], "__len__"):
             var = 0
         else:
             var = np.array([np.diag(p) + np.diag(s) for p, s in zip(self.noise['covariance'], sig_cov)])
-
-        storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal']) / np.sqrt(var)
+            storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal']) / np.sqrt(var)
 
 
 def run_mcmc(*args, model_name, params=params, **kwargs):
