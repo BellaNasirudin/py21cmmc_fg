@@ -754,20 +754,14 @@ class CoreInstrumental(CoreBase):
 
         for i, ff in enumerate(frequencies):
             lamb = const.c / ff.to(1 / un.s)
-            arr = np.zeros(np.shape(baselines))
-            arr[:, 0] = (baselines[:, 0] / lamb).value
-            arr[:, 1] = (baselines[:, 1] / lamb).value
-
-            real = np.real(uvplane[:, :, i])
-            imag = np.imag(uvplane[:, :, i])
-
-            f_real = RegularGridInterpolator([uv[0], uv[1]], real, bounds_error=False, fill_value=0)
-            f_imag = RegularGridInterpolator([uv[0], uv[1]], imag, bounds_error=False, fill_value=0)
-
-            FT_real = f_real(arr)
-            FT_imag = f_imag(arr)
-
-            vis[:, i] = FT_real + FT_imag * 1j
+            
+            u_bl = (baselines[:, 0] / lamb).value
+            v_bl = (baselines[:, 1] / lamb).value
+            
+            row = np.digitize(u_bl, uv[0])
+            col = np.digitize(v_bl, uv[1])
+            
+            vis[:, i] = uvplane[row, col, i]
 
         return vis
 
