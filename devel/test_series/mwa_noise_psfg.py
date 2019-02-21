@@ -22,11 +22,11 @@ Here are the tests:
 from base_definitions import CustomCoreInstrument, CustomLikelihood, core_eor, run_mcmc, DEBUG
 from py21cmmc_fg.core import CorePointSourceForegrounds
 
-model_name = "MWATestNoisePSFG"
+model_name = "MWATestNoisePSFG-SKA"
 
 core_instr = CustomCoreInstrument(
     antenna_posfile = 'mwa_phase2', # use a special grid of *baselines*.
-    Tsys = 240,
+    Tsys = 240, effective_collecting_area = 300.0
 )
 
 # Add foregrounds core but set S_min=S_max so essentially no foregrounds so that we can add noise numerically
@@ -35,7 +35,7 @@ core_fg = CorePointSourceForegrounds(S_min=1e-4, S_max=1, gamma=0)
 likelihood = CustomLikelihood(
     datafile=[f'data/{model_name}.npz'],
     noisefile=[f'data/{model_name}.noise.npz'],
-    use_analytical_noise=False, u_max = 185, n_uv=750
+    use_analytical_noise=False
 )
 
 if __name__ == "__main__":
