@@ -124,12 +124,12 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         self.baselines_type = ctx.get("baselines_type")
         visibilities = ctx.get("visibilities")
-        p_signal, power1d = self.compute_power(visibilities)
+        p_signal = self.compute_power(visibilities)
 
         # Remember that the results of "simulate" can be used in two places: (i) the computeLikelihood method, and (ii)
         # as data saved to file. In case of the latter, it is useful to save extra variables to the dictionary to be
         # looked at for diagnosis, even though they are not required in computeLikelihood().
-        return [dict(p_signal=p_signal, power1d=power1d, baselines=self.baselines, frequencies=self.frequencies,
+        return [dict(p_signal=p_signal, baselines=self.baselines, frequencies=self.frequencies,
                      u=self.u, eta=self.eta[self.eta > self.eta_min], nbl_uv=self.nbl_uv, nbl_uvnu=self.nbl_uvnu,
                      nbl_u=self.nbl_u, grid_weights=self.grid_weights)]
 
@@ -164,7 +164,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # every iter).
         if self.foreground_cores and not any([fg._updating for fg in self.foreground_cores]):
             if not self.use_analytical_noise:
-                mean, covariance, variance_1d = self.numerical_covariance(
+                mean, covariance = self.numerical_covariance(
                     nrealisations=self.nrealisations, nthreads=self._nthreads
                 )
             else:
@@ -185,9 +185,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             #                mean = np.repeat(self.noise_power_expectation, len(self.eta)).reshape((len(self.u), len(self.eta)))
             mean = 0
             covariance = 0
-            variance_1d = 0
 
-        return [{"mean": mean, "covariance": covariance, "variance_1d": variance_1d}]
+        return [{"mean": mean, "covariance": covariance}]
 
     def computeLikelihood(self, model):
         "Compute the likelihood"
@@ -313,18 +312,17 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         fnc = partial(_produce_mock, self, params)
 
         pool = multiprocessing.Pool(nthreads)
-        power, power1d = zip(*pool.map(fnc, np.arange(nrealisations)))
+        power = pool.map(fnc, np.arange(nrealisations))
 
         mean = np.mean(power, axis=0)
 
-        var = np.var(np.array(power1d), axis=0)
         # Note, this covariance *already* has thermal noise built in.
         if self.ps_dim == 2:
             cov = [np.cov(x) for x in np.array(power).transpose((1, 2, 0))]
         else:
-            cov = var
+            cov = np.var(power, axis=0)
 
-        return mean, cov, var
+        return mean, cov
 
     @staticmethod
     def analytical_covariance(uv, eta, nu_mid, bwidth, S_min=1e-1, S_max=1.0, alpha=4100., beta=1.59, D=4.0, gamma=0.8,
@@ -432,10 +430,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Get 2D power from gridded vis.
         power2d = self.get_power(visgrid, ps_dim=self.ps_dim)
 
-        # Get also 1D power from gridded vis for comparison
-        power1d = self.get_power(visgrid, ps_dim=1)
-
-        return power2d, power1d
+        return power2d
 
     def get_power(self, gridded_vis, ps_dim=2):
         """
@@ -736,6 +731,6 @@ def _produce_mock(self, params, i):
     self._instr_core.simulate_mock(ctx)
 
     # And compute the power
-    power, power1d = self.compute_power(ctx.get("visibilities"))
+    power = self.compute_power(ctx.get("visibilities"))
 
-    return power, power1d
+    return power
