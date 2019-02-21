@@ -715,6 +715,7 @@ class CoreInstrumental(CoreBase):
         """
         logger.info("Converting to UV space...")
         ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
+        print(uv_scale[uv_scale>0], np.diff(uv_scale))
         return ft, uv_scale
 
     @profile
@@ -746,22 +747,19 @@ class CoreInstrumental(CoreBase):
 
         """
 
-        vis = np.zeros((len(baselines), len(frequencies)), dtype=np.complex128)
-
         frequencies = frequencies / un.s
 
         logger.info("Sampling the data onto baselines...")
 
-        for i, ff in enumerate(frequencies):
-            lamb = const.c / ff.to(1 / un.s)
-            
-            u_bl = (baselines[:, 0] / lamb).value
-            v_bl = (baselines[:, 1] / lamb).value
-            
-            row = np.digitize(u_bl, uv[0])
-            col = np.digitize(v_bl, uv[1])
-            
-            vis[:, i] = uvplane[row, col, i]
+        lamb = (const.c / frequencies.to(1 / un.s)).value
+        
+        u_bl = np.outer(baselines[:, 0], 1 / lamb)
+        v_bl = np.outer(baselines[:, 1], 1 / lamb)
+        
+        row = np.digitize(u_bl, uv[0])
+        col = np.digitize(v_bl, uv[1])
+        
+        vis = np.array([uvplane[row[:,ii], col[:,ii], ii] for ii in range(len(frequencies))]).T
 
         return vis
 
