@@ -36,7 +36,7 @@ max_tile_n = 50
 taper = np.blackman
 integration_time = 3600000  # 1000 hours of observation time
 tile_diameter = 4.0
-max_bl_length = 198 if DEBUG else 260
+max_bl_length = 220 if DEBUG else 350
 
 # MCMC OPTIONS
 params = dict(  # Parameter dict as described above.
