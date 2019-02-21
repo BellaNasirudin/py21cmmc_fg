@@ -10,7 +10,7 @@ from py21cmmc.mcmc import CoreLightConeModule, run_mcmc as _run_mcmc
 from py21cmmc_fg.core import CoreInstrumental  # , ForegroundsBase
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
 
-DEBUG = int(os.environ.get("DEBUG", 0))
+DEBUG = int(os.environ.get("DEBUG", 2))
 
 if DEBUG > 2 or DEBUG < 0:
     raise ValueError("DEBUG should be 0,1,2")
@@ -50,7 +50,7 @@ BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
 nfreq = 100  # if DEBUG else 200
-n_cells = 500  # if DEBUG else 750
+n_cells = 500  if DEBUG else 1500
 
 # Likelihood options
 if DEBUG == 2:
@@ -110,10 +110,10 @@ class CustomCoreInstrument(CoreInstrumental):
 
 
 class CustomLikelihood(LikelihoodInstrumental2D):
-    def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[300, 100, 2][DEBUG],
+    def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[1000, 100, 2][DEBUG],
                  **kwargs):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper, u_min=10,
-                         simulate=True, nthreads=6 if DEBUG else 12, nrealisations=nrealisations, ps_dim=2,
+                         simulate=True, nthreads=1 if DEBUG else 16, nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
 
     def store(self, model, storage):
@@ -137,10 +137,10 @@ def run_mcmc(*args, model_name, params=params, **kwargs):
         datadir='data',  # Directory for all outputs
         model_name=model_name,  # Filename of main chain output
         params=params,
-        walkersRatio=[18, 3, 2][DEBUG],  # The number of walkers will be walkersRatio*nparams
+        walkersRatio=[16, 3, 2][DEBUG],  # The number of walkers will be walkersRatio*nparams
         burninIterations=0,  # Number of iterations to save as burnin. Recommended to leave as zero.
         sampleIterations=[100, 50, 2][DEBUG],  # Number of iterations to sample, per walker.
-        threadCount=[12, 6, 1][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
+        threadCount=[16, 6, 1][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
         continue_sampling=CONTINUE,  # Whether to contine sampling from previous run *up to* sampleIterations.
         **kwargs
     )
