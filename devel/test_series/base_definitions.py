@@ -10,7 +10,7 @@ from py21cmmc.mcmc import CoreLightConeModule, run_mcmc as _run_mcmc
 from py21cmmc_fg.core import CoreInstrumental  # , ForegroundsBase
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
 
-DEBUG = int(os.environ.get("DEBUG", 2))
+DEBUG = int(os.environ.get("DEBUG", 0))
 
 if DEBUG > 2 or DEBUG < 0:
     raise ValueError("DEBUG should be 0,1,2")
@@ -36,6 +36,7 @@ max_tile_n = 50
 taper = np.blackman
 integration_time = 3600000  # 1000 hours of observation time
 tile_diameter = 4.0
+max_bl_length = 198 if DEBUG else 260
 
 # MCMC OPTIONS
 params = dict(  # Parameter dict as described above.
@@ -50,7 +51,7 @@ BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
 nfreq = 100  # if DEBUG else 200
-n_cells = 500  if DEBUG else 1500
+n_cells = 500  if DEBUG else 1000
 
 # Likelihood options
 if DEBUG == 2:
@@ -101,11 +102,11 @@ core_eor = CoreLightConeModule(
 class CustomCoreInstrument(CoreInstrumental):
     def __init__(self, freq_min=freq_min, freq_max=freq_max, nfreq=nfreq,
                  sky_size=sky_size, n_cells=n_cells, tile_diameter=tile_diameter,
-                 integration_time=integration_time,
+                 integration_time=integration_time,max_bl_length = max_bl_length,
                  **kwargs):
         super().__init__(freq_max=freq_max, freq_min=freq_min,
                          nfreq=nfreq, tile_diameter=tile_diameter, integration_time=integration_time,
-                         sky_extent=sky_size, n_cells=n_cells, effective_collecting_area=tile_diameter ** 2,
+                         sky_extent=sky_size, n_cells=n_cells, max_bl_length = max_bl_length,
                          **kwargs)
 
 
