@@ -100,6 +100,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         self.ps_dim = ps_dim
 
         self.use_analytical_noise = use_analytical_noise
+        
+        self.kernel_weights = None # set this as None so we only do this once
 
     def setup(self):
         super().setup()
@@ -451,6 +453,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         P : float (n_eta, bins)-array
             The cylindrical averaged (or 2D) Power Spectrum, with units JyHz**2.
         """
+        logger.info("Calculating the power spectrum")
+        
         # The 3D power spectrum
         power_3d = np.absolute(gridded_vis) ** 2
 
@@ -459,34 +463,45 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 field=power_3d,
                 coords=[self.uvgrid, self.uvgrid, self.eta],
                 bins=self.u_edges, n=ps_dim,
-                weights=self.nbl_uv,  # weights,
+                weights=np.sum(self.kernel_weights, axis=2),  # weights,
                 bin_ave=False,
             )[0][:, int(len(self.eta) / 2) + 1:]  # return the positive part
 
         elif ps_dim == 1:
-            # Need to stack the weights so it's 3d
-            nbl_uv = self.nbl_uv.copy()
-            nbl_uv_temp = self.nbl_uv.copy()
-            for ii in range(len(self.eta) - 1):
-                nbl_uv = np.dstack((nbl_uv, nbl_uv_temp))
 
             P = angular_average_nd(
                 field=power_3d,
                 coords=[self.uvgrid, self.uvgrid, self.eta],
                 bins=self.u_edges,
-                weights=nbl_uv,
+                weights=self.kernel_weights,
                 bin_ave=False,
             )[0]
 
         return P
 
-    def grid_visibilities(self, visibilities):
+    def fourierBeam(self, k, frequency):
+        """
+        Find the Fourier Transform of the Gaussian beam
+        
+        Parameter
+        ---------
+        k : (ngrid, ngrid, n_baselines)-array
+            The squared difference between the grid centres and the baseline coords
+        
+        frequency: float
+            The frequency in Hz.
+        """
+    
+        a = 1/ (2 * self._instr_core.sigma(frequency)**2)
+
+        return np.exp(- k / a)
+
+    def grid_visibilities(self, visibilities, min_attenuation = 1e-4):
         """
         Grid a set of visibilities from baselines onto a UV grid.
 
-        Uses simple nearest-neighbour weighting to perform the gridding. This is fast, but not necessarily very
-        accurate.
-
+        Uses Fourier (Gaussian) beam weighting to perform the gridding.
+        
         Parameters
         ----------
         visibilities : complex (n_baselines, n_freq)-array
@@ -497,23 +512,32 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         visgrid : (ngrid, ngrid, n_freq)-array
             The visibility grid, in Jy.
         """
-
-        ugrid = np.linspace(-self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
-                            self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
-
-        visgrid = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)), dtype=np.complex128)
-
+        logger.info("Gridding the visibilities")
+        
+        ugrid = np.linspace(-self.uv_max, self.uv_max, self.n_uv +1 )  # +1 because these are bin edges.
+        
         centres = (ugrid[1:] + ugrid[:-1]) / 2
         cgrid_u, cgrid_v = np.meshgrid(centres, centres)
-        for j, f in enumerate(self.frequencies):
-            # U,V values change with frequency.
-            u = self.baselines[:, 0] * f / const.c
-            v = self.baselines[:, 1] * f / const.c
 
-            # Histogram the baselines in each grid 
-            tmp_rl = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].real)[0]
-            tmp_im = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid], weights=visibilities[:, j].imag)[0]
-            visgrid[:, :, j] = tmp_rl + 1j * tmp_im
+        visgrid = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)), dtype=np.complex128)
+        
+        if self.kernel_weights is None:
+            weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
+        
+        for jj, freq in enumerate(self.frequencies):
+            u_bl = (self.baselines[:,0] * freq / const.c).value
+            v_bl = (self.baselines[:,1] * freq / const.c).value
+            
+            beam = self.fourierBeam(np.add.outer(cgrid_u, - u_bl)**2 + np.add.outer(cgrid_v, - v_bl)**2, freq)
+            beam[beam < min_attenuation] = 0
+            
+            visgrid[:,:,jj] += np.sum(beam * visibilities[:,jj], axis =2)
+           
+            if self.kernel_weights is None:
+                weights[:,:,jj] += np.sum(beam / np.sum(beam, axis=(0,1)), axis =2)
+
+        if self.kernel_weights is None:
+            self.kernel_weights = weights
 
         # Take the average visibility (divide by weights), being careful not to divide by zero.
         visgrid[self.nbl_uvnu != 0] /= self.nbl_uvnu[self.nbl_uvnu != 0]
@@ -526,9 +550,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         Centres of the uv grid along a side.
         """
         if self.baselines_type != "grid_centres":
-            ugrid = np.linspace(
-                -self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
-                self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
+            ugrid = np.linspace(-self.uv_max, self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
             return (ugrid[1:] + ugrid[:-1]) / 2
         else:
             # return the uv
@@ -576,9 +598,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """The number of baselines in each u,v,nu cell"""
 
         if self.baselines_type != "grid_centres":
-            ugrid = np.linspace(
-                -self.uv_max - np.diff((self.baselines[:, 0] * self.frequencies.min() / const.c).value)[0],
-                self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
+            ugrid = np.linspace(-self.uv_max, self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
             weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
 
             for j, f in enumerate(self.frequencies):
