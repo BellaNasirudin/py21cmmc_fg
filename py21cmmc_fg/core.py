@@ -657,8 +657,8 @@ class CoreInstrumental(CoreBase):
         L, M = np.meshgrid(np.sin(self.sky_coords), np.sin(self.sky_coords))
 
         attenuation = np.exp(
-            np.outer(-(L ** 2 + M ** 2), 1. / (self.sigma(frequencies) ** 2)).reshape(
-                (self.n_cells, self.n_cells, len(frequencies))))  # got rid of a factor of 2
+            np.outer(-(L ** 2 + M ** 2), 1. / (2 * self.sigma(frequencies) ** 2)).reshape(
+                (self.n_cells, self.n_cells, len(frequencies))))
 
         return attenuation
 
@@ -715,7 +715,6 @@ class CoreInstrumental(CoreBase):
         """
         logger.info("Converting to UV space...")
         ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
-        print(uv_scale[uv_scale>0], np.diff(uv_scale))
         return ft, uv_scale
 
     @profile
@@ -748,18 +747,26 @@ class CoreInstrumental(CoreBase):
         """
 
         frequencies = frequencies / un.s
-
+        vis = np.zeros((len(baselines), len(frequencies)), dtype=np.complex128)
+        
         logger.info("Sampling the data onto baselines...")
 
-        lamb = (const.c / frequencies.to(1 / un.s)).value
-        
-        u_bl = np.outer(baselines[:, 0], 1 / lamb)
-        v_bl = np.outer(baselines[:, 1], 1 / lamb)
-        
-        row = np.digitize(u_bl, uv[0])
-        col = np.digitize(v_bl, uv[1])
-        
-        vis = np.array([uvplane[row[:,ii], col[:,ii], ii] for ii in range(len(frequencies))]).T
+        for i, ff in enumerate(frequencies):
+            lamb = const.c / ff.to(1 / un.s)
+            arr = np.zeros(np.shape(baselines))
+            arr[:, 0] = (baselines[:, 0] / lamb).value
+            arr[:, 1] = (baselines[:, 1] / lamb).value
+            
+            real = np.real(uvplane[:, :, i])
+            imag = np.imag(uvplane[:, :, i])
+            
+            f_real = RegularGridInterpolator([uv[0], uv[1]], real, bounds_error=False, fill_value=0)
+            f_imag = RegularGridInterpolator([uv[0], uv[1]], imag, bounds_error=False, fill_value=0)
+            
+            FT_real = f_real(arr)
+            FT_imag = f_imag(arr)
+            
+            vis[:, i] = FT_real + FT_imag * 1j
 
         return vis
 
