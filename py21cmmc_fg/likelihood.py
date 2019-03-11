@@ -132,7 +132,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # as data saved to file. In case of the latter, it is useful to save extra variables to the dictionary to be
         # looked at for diagnosis, even though they are not required in computeLikelihood().
         return [dict(p_signal=p_signal, baselines=self.baselines, frequencies=self.frequencies,
-                     u=self.u, eta=self.eta[self.eta > self.eta_min], nbl_uv=self.nbl_uv, nbl_uvnu=self.nbl_uvnu,
+                     u=self.u, eta=self.eta, nbl_uv=self.nbl_uv, nbl_uvnu=self.nbl_uvnu,
                      nbl_u=self.nbl_u, grid_weights=self.grid_weights)]
 
     def define_noise(self, ctx, model):
@@ -465,7 +465,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 bins=self.u_edges, n=ps_dim,
                 weights=np.sum(self.kernel_weights, axis=2),  # weights,
                 bin_ave=False,
-            )[0][:, int(len(self.eta) / 2) + 1:]  # return the positive part
+            )[0][:, int(len(self.frequencies) / 2):]  # return the positive part
+            
+            self.eta = self.eta[self.eta > self.eta_min]
 
         elif ps_dim == 1:
 
@@ -479,24 +481,47 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return P
 
-    def fourierBeam(self, k, frequency):
+    def fourierBeam(self, centres, u_bl, v_bl, frequency, min_attenuation = 1e-5, N = 20):
         """
         Find the Fourier Transform of the Gaussian beam
         
         Parameter
         ---------
-        k : (ngrid, ngrid, n_baselines)-array
-            The squared difference between the grid centres and the baseline coords
+        centres : (ngrid)-array
+            The centres of the grid.
         
+        u_bl : (n_baselines)-array
+            The list of baselines in m.
+            
+        v_bl : (n_baselines)-array
+            The list of baselines in m.
+            
         frequency: float
             The frequency in Hz.
         """
     
         a = 1/ (2 * self._instr_core.sigma(frequency)**2)
+        
+        indx_u = np.digitize(u_bl, centres)
+        indx_v = np.digitize(v_bl, centres)
+        
+        beam = []
+        
+        for jj in range(len(u_bl)):
+            x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)])
+            B = (np.exp(- ((x - u_bl[jj])**2 + (y - v_bl[jj])**2 )/ a)).T
+            B[B<min_attenuation] = 0
+            beam.append(B)
+        
+        indx_u+= -int(N/2)
+        indx_v+= -int(N/2)
+        
+        indx_u[indx_u<0] = 0
+        indx_v[indx_v<0] = 0         
+                   
+        return beam, indx_u, indx_v
 
-        return np.exp(- k / a)
-
-    def grid_visibilities(self, visibilities, min_attenuation = 1e-4):
+    def grid_visibilities(self, visibilities, N = 50):
         """
         Grid a set of visibilities from baselines onto a UV grid.
 
@@ -517,7 +542,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         ugrid = np.linspace(-self.uv_max, self.uv_max, self.n_uv +1 )  # +1 because these are bin edges.
         
         centres = (ugrid[1:] + ugrid[:-1]) / 2
-        cgrid_u, cgrid_v = np.meshgrid(centres, centres)
 
         visgrid = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)), dtype=np.complex128)
         
@@ -528,19 +552,16 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             u_bl = (self.baselines[:,0] * freq / const.c).value
             v_bl = (self.baselines[:,1] * freq / const.c).value
             
-            beam = self.fourierBeam(np.add.outer(cgrid_u, - u_bl)**2 + np.add.outer(cgrid_v, - v_bl)**2, freq)
-            beam[beam < min_attenuation] = 0
+            beam, indx_u, indx_v = self.fourierBeam(centres, u_bl, v_bl, freq, N=N)
             
-            visgrid[:,:,jj] += np.sum(beam * visibilities[:,jj], axis =2)
+            for kk in range(len(indx_u)):
+                visgrid[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] * visibilities[kk,jj]
            
-            if self.kernel_weights is None:
-                weights[:,:,jj] += np.sum(beam / np.sum(beam, axis=(0,1)), axis =2)
+                if self.kernel_weights is None:
+                    weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk])
 
         if self.kernel_weights is None:
             self.kernel_weights = weights
-
-        # Take the average visibility (divide by weights), being careful not to divide by zero.
-        visgrid[self.nbl_uvnu != 0] /= self.nbl_uvnu[self.nbl_uvnu != 0]
 
         return visgrid
 
@@ -653,7 +674,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         "Grid of positive frequency fourier-modes"
         dnu = self.frequencies[1] - self.frequencies[0]
         eta = fftfreq(len(self.frequencies), d=dnu, b=2 * np.pi)
-
         return eta
 
     @cached_property
