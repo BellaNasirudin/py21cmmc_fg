@@ -654,7 +654,7 @@ class CoreInstrumental(CoreBase):
         """
 
         # Create a meshgrid for the beam attenuation on sky array
-        L, M = np.meshgrid(np.sin(self.sky_coords), np.sin(self.sky_coords))
+        L, M = np.meshgrid(np.sin(self.sky_coords), np.sin(self.sky_coords), indexing='ij')
 
         attenuation = np.exp(
             np.outer(-(L ** 2 + M ** 2), 1. / (2 * self.sigma(frequencies) ** 2)).reshape(
@@ -714,7 +714,7 @@ class CoreInstrumental(CoreBase):
             The u and v co-ordinates of the uvsky, respectively. Units are inverse of L.
         """
         logger.info("Converting to UV space...")
-        ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
+        ft, uv_scale = fft(np.fft.ifftshift(sky, axes=(0, 1)), L, axes=(0, 1), a=0, b=2 * np.pi)
         return ft, uv_scale
 
     @profile
@@ -869,7 +869,7 @@ class CoreInstrumental(CoreBase):
         func = RegularGridInterpolator([xy, xy, freqs], data, bounds_error=False, fill_value=0)
 
         # Create a meshgrid to interpolate the points
-        XY, YX, LINFREQS = np.meshgrid(xy, xy, linFreqs)
+        XY, YX, LINFREQS = np.meshgrid(xy, xy, linFreqs, indexing='ij')
 
         # Flatten the arrays so the can be put into pts array
         XY = XY.flatten()

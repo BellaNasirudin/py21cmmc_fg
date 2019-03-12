@@ -216,7 +216,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             lnl = -0.5 * np.sum(
                 (self.data['p_signal'] - total_model) ** 2 / (self.model_uncertainty * model['p_signal']) ** 2)
-
+        
         return lnl
 
     @cached_property
@@ -542,7 +542,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         ugrid = np.linspace(-self.uv_max, self.uv_max, self.n_uv +1 )  # +1 because these are bin edges.
         
         centres = (ugrid[1:] + ugrid[:-1]) / 2
-
+        
         visgrid = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)), dtype=np.complex128)
         
         if self.kernel_weights is None:
@@ -562,7 +562,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         if self.kernel_weights is None:
             self.kernel_weights = weights
-
+        
         return visgrid
 
     @cached_property
@@ -720,7 +720,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         eta : (nfreq/2)-array
             The eta-coordinates, without negative values.
         """
-        ft = fft(vis * taper(len(freq)), (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)[0]
+        ft = fft(np.fft.ifftshift(vis * taper(len(freq)), axes=(2,)), (freq.max() - freq.min()), axes=(2,), a=0, b=2 * np.pi)[0]
 
         return ft
 
