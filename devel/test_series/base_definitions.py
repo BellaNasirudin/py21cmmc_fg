@@ -33,10 +33,10 @@ freq_max = 160.0
 z_step_factor = 1.04
 sky_size = 4.5  # in sigma
 max_tile_n = 50
-taper = np.blackman
+#taper = signal.blackmanharris
 integration_time = 3600000  # 1000 hours of observation time
 tile_diameter = 4.0
-max_bl_length = 350 if DEBUG else 500
+max_bl_length = 250 if DEBUG else 400
 
 # MCMC OPTIONS
 params = dict(  # Parameter dict as described above.
@@ -95,7 +95,8 @@ core_eor = CoreLightConeModule(
         "lc_slices": _store_lightcone,
         "2DPS": _store_2dps
     },
-    change_seed_every_iter=False
+    change_seed_every_iter=False,
+    initial_conditions_seed=42
 )
 
 
@@ -111,9 +112,9 @@ class CustomCoreInstrument(CoreInstrumental):
 
 
 class CustomLikelihood(LikelihoodInstrumental2D):
-    def __init__(self, n_ubins=n_ubins, uv_max=None, frequency_taper=taper, nrealisations=[1000, 100, 2][DEBUG],
+    def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[1000, 100, 2][DEBUG],
                  **kwargs):
-        super().__init__(n_ubins=n_ubins, uv_max=uv_max, frequency_taper=frequency_taper, u_min=10,
+        super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min=10, #frequency_taper=frequency_taper,
                          simulate=True, nthreads=1 if DEBUG else 16, nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
 

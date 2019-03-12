@@ -17,9 +17,8 @@ from powerbox.tools import angular_average_nd
 from py21cmmc.mcmc.core import CoreLightConeModule
 from py21cmmc.mcmc.likelihood import LikelihoodBaseFile
 from scipy.integrate import quad
-from scipy.interpolate import griddata
 from scipy.special import erf
-
+from scipy import signal
 from .core import CoreInstrumental, ForegroundsBase
 from .util import lognormpdf
 
@@ -427,7 +426,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             visgrid = visibilities
         # Transform frequency axis
-        visgrid = self.frequency_fft(visgrid, self.frequencies, self.ps_dim, taper=self.frequency_taper)
+        visgrid = self.frequency_fft(visgrid, self.frequencies, self.ps_dim, taper=signal.blackmanharris)#self.frequency_taper)
 
         # Get 2D power from gridded vis.
         power2d = self.get_power(visgrid, ps_dim=self.ps_dim)
