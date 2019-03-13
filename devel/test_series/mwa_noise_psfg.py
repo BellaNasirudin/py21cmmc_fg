@@ -30,7 +30,7 @@ core_instr = CustomCoreInstrument(
 )
 
 # Add foregrounds core but set S_min=S_max so essentially no foregrounds so that we can add noise numerically
-core_fg = CorePointSourceForegrounds(S_min=1e-4, S_max=1, gamma=0)
+core_fg = CorePointSourceForegrounds(S_min=1e-6, S_max=1e-3, gamma=0)
 
 likelihood = CustomLikelihood(
     datafile=[f'data/{model_name}.npz'],
