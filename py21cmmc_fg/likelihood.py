@@ -561,8 +561,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         if self.kernel_weights is None:
             self.kernel_weights = weights
+            
+        visgrid[self.kernel_weights!=0] /= self.kernel_weights[self.kernel_weights!=0]
         
-        return visgrid/self.kernel_weights
+        return visgrid
 
     @cached_property
     def uvgrid(self):
