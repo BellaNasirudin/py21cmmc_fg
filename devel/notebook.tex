@@ -1,0 +1,491 @@
+
+% Default to the notebook output style
+
+    
+
+
+% Inherit from the specified cell style.
+
+
+
+
+    
+\documentclass[11pt]{article}
+
+    
+    
+    \usepackage[T1]{fontenc}
+    % Nicer default font (+ math font) than Computer Modern for most use cases
+    \usepackage{mathpazo}
+
+    % Basic figure setup, for now with no caption control since it's done
+    % automatically by Pandoc (which extracts ![](path) syntax from Markdown).
+    \usepackage{graphicx}
+    % We will generate all images so they have a width \maxwidth. This means
+    % that they will get their normal width if they fit onto the page, but
+    % are scaled down if they would overflow the margins.
+    \makeatletter
+    \def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth
+    \else\Gin@nat@width\fi}
+    \makeatother
+    \let\Oldincludegraphics\includegraphics
+    % Set max figure width to be 80% of text width, for now hardcoded.
+    \renewcommand{\includegraphics}[1]{\Oldincludegraphics[width=.8\maxwidth]{#1}}
+    % Ensure that by default, figures have no caption (until we provide a
+    % proper Figure object with a Caption API and a way to capture that
+    % in the conversion process - todo).
+    \usepackage{caption}
+    \DeclareCaptionLabelFormat{nolabel}{}
+    \captionsetup{labelformat=nolabel}
+
+    \usepackage{adjustbox} % Used to constrain images to a maximum size 
+    \usepackage{xcolor} % Allow colors to be defined
+    \usepackage{enumerate} % Needed for markdown enumerations to work
+    \usepackage{geometry} % Used to adjust the document margins
+    \usepackage{amsmath} % Equations
+    \usepackage{amssymb} % Equations
+    \usepackage{textcomp} % defines textquotesingle
+    % Hack from http://tex.stackexchange.com/a/47451/13684:
+    \AtBeginDocument{%
+        \def\PYZsq{\textquotesingle}% Upright quotes in Pygmentized code
+    }
+    \usepackage{upquote} % Upright quotes for verbatim code
+    \usepackage{eurosym} % defines \euro
+    \usepackage[mathletters]{ucs} % Extended unicode (utf-8) support
+    \usepackage[utf8x]{inputenc} % Allow utf-8 characters in the tex document
+    \usepackage{fancyvrb} % verbatim replacement that allows latex
+    \usepackage{grffile} % extends the file name processing of package graphics 
+                         % to support a larger range 
+    % The hyperref package gives us a pdf with properly built
+    % internal navigation ('pdf bookmarks' for the table of contents,
+    % internal cross-reference links, web links for URLs, etc.)
+    \usepackage{hyperref}
+    \usepackage{longtable} % longtable support required by pandoc >1.10
+    \usepackage{booktabs}  % table support for pandoc > 1.12.2
+    \usepackage[inline]{enumitem} % IRkernel/repr support (it uses the enumerate* environment)
+    \usepackage[normalem]{ulem} % ulem is needed to support strikethroughs (\sout)
+                                % normalem makes italics be italics, not underlines
+    
+
+    
+    
+    % Colors for the hyperref package
+    \definecolor{urlcolor}{rgb}{0,.145,.698}
+    \definecolor{linkcolor}{rgb}{.71,0.21,0.01}
+    \definecolor{citecolor}{rgb}{.12,.54,.11}
+
+    % ANSI colors
+    \definecolor{ansi-black}{HTML}{3E424D}
+    \definecolor{ansi-black-intense}{HTML}{282C36}
+    \definecolor{ansi-red}{HTML}{E75C58}
+    \definecolor{ansi-red-intense}{HTML}{B22B31}
+    \definecolor{ansi-green}{HTML}{00A250}
+    \definecolor{ansi-green-intense}{HTML}{007427}
+    \definecolor{ansi-yellow}{HTML}{DDB62B}
+    \definecolor{ansi-yellow-intense}{HTML}{B27D12}
+    \definecolor{ansi-blue}{HTML}{208FFB}
+    \definecolor{ansi-blue-intense}{HTML}{0065CA}
+    \definecolor{ansi-magenta}{HTML}{D160C4}
+    \definecolor{ansi-magenta-intense}{HTML}{A03196}
+    \definecolor{ansi-cyan}{HTML}{60C6C8}
+    \definecolor{ansi-cyan-intense}{HTML}{258F8F}
+    \definecolor{ansi-white}{HTML}{C5C1B4}
+    \definecolor{ansi-white-intense}{HTML}{A1A6B2}
+
+    % commands and environments needed by pandoc snippets
+    % extracted from the output of `pandoc -s`
+    \providecommand{\tightlist}{%
+      \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+    % Add ',fontsize=\small' for more characters per line
+    \newenvironment{Shaded}{}{}
+    \newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{{#1}}}}
+    \newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.56,0.13,0.00}{{#1}}}
+    \newcommand{\DecValTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{{#1}}}
+    \newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{{#1}}}
+    \newcommand{\FloatTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{{#1}}}
+    \newcommand{\CharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{{#1}}}
+    \newcommand{\StringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{{#1}}}
+    \newcommand{\CommentTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textit{{#1}}}}
+    \newcommand{\OtherTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{{#1}}}
+    \newcommand{\AlertTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{{#1}}}}
+    \newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.02,0.16,0.49}{{#1}}}
+    \newcommand{\RegionMarkerTok}[1]{{#1}}
+    \newcommand{\ErrorTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{{#1}}}}
+    \newcommand{\NormalTok}[1]{{#1}}
+    
+    % Additional commands for more recent versions of Pandoc
+    \newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.53,0.00,0.00}{{#1}}}
+    \newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{{#1}}}
+    \newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{{#1}}}
+    \newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.73,0.40,0.53}{{#1}}}
+    \newcommand{\ImportTok}[1]{{#1}}
+    \newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.73,0.13,0.13}{\textit{{#1}}}}
+    \newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{{#1}}}}}
+    \newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{{#1}}}}}
+    \newcommand{\VariableTok}[1]{\textcolor[rgb]{0.10,0.09,0.49}{{#1}}}
+    \newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{{#1}}}}
+    \newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.40,0.40,0.40}{{#1}}}
+    \newcommand{\BuiltInTok}[1]{{#1}}
+    \newcommand{\ExtensionTok}[1]{{#1}}
+    \newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.74,0.48,0.00}{{#1}}}
+    \newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.49,0.56,0.16}{{#1}}}
+    \newcommand{\InformationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{{#1}}}}}
+    \newcommand{\WarningTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{{#1}}}}}
+    
+    
+    % Define a nice break command that doesn't care if a line doesn't already
+    % exist.
+    \def\br{\hspace*{\fill} \\* }
+    % Math Jax compatability definitions
+    \def\gt{>}
+    \def\lt{<}
+    % Document parameters
+    \title{noise\_power\_derivation}
+    
+    
+    
+
+    % Pygments definitions
+    
+\makeatletter
+\def\PY@reset{\let\PY@it=\relax \let\PY@bf=\relax%
+    \let\PY@ul=\relax \let\PY@tc=\relax%
+    \let\PY@bc=\relax \let\PY@ff=\relax}
+\def\PY@tok#1{\csname PY@tok@#1\endcsname}
+\def\PY@toks#1+{\ifx\relax#1\empty\else%
+    \PY@tok{#1}\expandafter\PY@toks\fi}
+\def\PY@do#1{\PY@bc{\PY@tc{\PY@ul{%
+    \PY@it{\PY@bf{\PY@ff{#1}}}}}}}
+\def\PY#1#2{\PY@reset\PY@toks#1+\relax+\PY@do{#2}}
+
+\expandafter\def\csname PY@tok@w\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.73,0.73,0.73}{##1}}}
+\expandafter\def\csname PY@tok@c\endcsname{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.25,0.50,0.50}{##1}}}
+\expandafter\def\csname PY@tok@cp\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.74,0.48,0.00}{##1}}}
+\expandafter\def\csname PY@tok@k\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\expandafter\def\csname PY@tok@kp\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\expandafter\def\csname PY@tok@kt\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.69,0.00,0.25}{##1}}}
+\expandafter\def\csname PY@tok@o\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\expandafter\def\csname PY@tok@ow\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.67,0.13,1.00}{##1}}}
+\expandafter\def\csname PY@tok@nb\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\expandafter\def\csname PY@tok@nf\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,1.00}{##1}}}
+\expandafter\def\csname PY@tok@nc\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,1.00}{##1}}}
+\expandafter\def\csname PY@tok@nn\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,1.00}{##1}}}
+\expandafter\def\csname PY@tok@ne\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.82,0.25,0.23}{##1}}}
+\expandafter\def\csname PY@tok@nv\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\expandafter\def\csname PY@tok@no\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.53,0.00,0.00}{##1}}}
+\expandafter\def\csname PY@tok@nl\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.63,0.63,0.00}{##1}}}
+\expandafter\def\csname PY@tok@ni\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.60,0.60,0.60}{##1}}}
+\expandafter\def\csname PY@tok@na\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.49,0.56,0.16}{##1}}}
+\expandafter\def\csname PY@tok@nt\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\expandafter\def\csname PY@tok@nd\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.67,0.13,1.00}{##1}}}
+\expandafter\def\csname PY@tok@s\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\expandafter\def\csname PY@tok@sd\endcsname{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\expandafter\def\csname PY@tok@si\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.73,0.40,0.53}{##1}}}
+\expandafter\def\csname PY@tok@se\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.73,0.40,0.13}{##1}}}
+\expandafter\def\csname PY@tok@sr\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.73,0.40,0.53}{##1}}}
+\expandafter\def\csname PY@tok@ss\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\expandafter\def\csname PY@tok@sx\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\expandafter\def\csname PY@tok@m\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\expandafter\def\csname PY@tok@gh\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,0.50}{##1}}}
+\expandafter\def\csname PY@tok@gu\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.50,0.00,0.50}{##1}}}
+\expandafter\def\csname PY@tok@gd\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.63,0.00,0.00}{##1}}}
+\expandafter\def\csname PY@tok@gi\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.00,0.63,0.00}{##1}}}
+\expandafter\def\csname PY@tok@gr\endcsname{\def\PY@tc##1{\textcolor[rgb]{1.00,0.00,0.00}{##1}}}
+\expandafter\def\csname PY@tok@ge\endcsname{\let\PY@it=\textit}
+\expandafter\def\csname PY@tok@gs\endcsname{\let\PY@bf=\textbf}
+\expandafter\def\csname PY@tok@gp\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,0.50}{##1}}}
+\expandafter\def\csname PY@tok@go\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.53,0.53,0.53}{##1}}}
+\expandafter\def\csname PY@tok@gt\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.00,0.27,0.87}{##1}}}
+\expandafter\def\csname PY@tok@err\endcsname{\def\PY@bc##1{\setlength{\fboxsep}{0pt}\fcolorbox[rgb]{1.00,0.00,0.00}{1,1,1}{\strut ##1}}}
+\expandafter\def\csname PY@tok@kc\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\expandafter\def\csname PY@tok@kd\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\expandafter\def\csname PY@tok@kn\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\expandafter\def\csname PY@tok@kr\endcsname{\let\PY@bf=\textbf\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\expandafter\def\csname PY@tok@bp\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.00,0.50,0.00}{##1}}}
+\expandafter\def\csname PY@tok@fm\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.00,0.00,1.00}{##1}}}
+\expandafter\def\csname PY@tok@vc\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\expandafter\def\csname PY@tok@vg\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\expandafter\def\csname PY@tok@vi\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\expandafter\def\csname PY@tok@vm\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.10,0.09,0.49}{##1}}}
+\expandafter\def\csname PY@tok@sa\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\expandafter\def\csname PY@tok@sb\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\expandafter\def\csname PY@tok@sc\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\expandafter\def\csname PY@tok@dl\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\expandafter\def\csname PY@tok@s2\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\expandafter\def\csname PY@tok@sh\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\expandafter\def\csname PY@tok@s1\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.73,0.13,0.13}{##1}}}
+\expandafter\def\csname PY@tok@mb\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\expandafter\def\csname PY@tok@mf\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\expandafter\def\csname PY@tok@mh\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\expandafter\def\csname PY@tok@mi\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\expandafter\def\csname PY@tok@il\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\expandafter\def\csname PY@tok@mo\endcsname{\def\PY@tc##1{\textcolor[rgb]{0.40,0.40,0.40}{##1}}}
+\expandafter\def\csname PY@tok@ch\endcsname{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.25,0.50,0.50}{##1}}}
+\expandafter\def\csname PY@tok@cm\endcsname{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.25,0.50,0.50}{##1}}}
+\expandafter\def\csname PY@tok@cpf\endcsname{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.25,0.50,0.50}{##1}}}
+\expandafter\def\csname PY@tok@c1\endcsname{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.25,0.50,0.50}{##1}}}
+\expandafter\def\csname PY@tok@cs\endcsname{\let\PY@it=\textit\def\PY@tc##1{\textcolor[rgb]{0.25,0.50,0.50}{##1}}}
+
+\def\PYZbs{\char`\\}
+\def\PYZus{\char`\_}
+\def\PYZob{\char`\{}
+\def\PYZcb{\char`\}}
+\def\PYZca{\char`\^}
+\def\PYZam{\char`\&}
+\def\PYZlt{\char`\<}
+\def\PYZgt{\char`\>}
+\def\PYZsh{\char`\#}
+\def\PYZpc{\char`\%}
+\def\PYZdl{\char`\$}
+\def\PYZhy{\char`\-}
+\def\PYZsq{\char`\'}
+\def\PYZdq{\char`\"}
+\def\PYZti{\char`\~}
+% for compatibility with earlier versions
+\def\PYZat{@}
+\def\PYZlb{[}
+\def\PYZrb{]}
+\makeatother
+
+
+    % Exact colors from NB
+    \definecolor{incolor}{rgb}{0.0, 0.0, 0.5}
+    \definecolor{outcolor}{rgb}{0.545, 0.0, 0.0}
+
+
+
+    
+    % Prevent overflowing lines due to hard-to-break entities
+    \sloppy 
+    % Setup hyperref package
+    \hypersetup{
+      breaklinks=true,  % so long urls are correctly broken across lines
+      colorlinks=true,
+      urlcolor=urlcolor,
+      linkcolor=linkcolor,
+      citecolor=citecolor,
+      }
+    % Slightly bigger margins than the latex defaults
+    
+    \geometry{verbose,tmargin=1in,bmargin=1in,lmargin=1in,rmargin=1in}
+    
+    
+
+    \begin{document}
+    
+    
+    \maketitle
+    
+    
+
+    
+    \hypertarget{derivation-of-expectation-and-variance-of-power-from-thermal-noise}{%
+\section{Derivation of Expectation and Variance of Power from Thermal
+Noise}\label{derivation-of-expectation-and-variance-of-power-from-thermal-noise}}
+
+    \hypertarget{preliminaries}{%
+\subsection{Preliminaries}\label{preliminaries}}
+
+    For the general likelihood of the 2D power (or even 1D power), one needs
+to know the contribution to the power (and its uncertainty) from thermal
+noise. In fact, of course, the thermal noise is added in a non-Gaussian
+manner (same as everything else, really) because it is strictly
+positive. However, we assume that it is at least \emph{close} to
+Gaussian, so that we can describe it purely by its mean and variance.
+
+    The other thing that is often assumed is that the thermal noise can be
+treated independently of all other signals in the chain (eg. EoR and
+FG). We will show that while this is a reasonable assumption when the
+expected power (from FG and EoR) is much less than the variance of the
+noise, it does not hold in general. Ignoring this fact leads to
+consistent under-estimation of the total variance of the power spectrum.
+We will first perform the calculation assuming that the FG, EoR and
+noise can be separated, before doing the full derivation.
+
+    Throughout the following, we assume that the variance of the
+\emph{magnitude} of a visibility from thermal noise is \(\sigma^2\).
+This requires that the variance of the real and imaginary components,
+\(\sigma^2_\mathcal{R}, \sigma^2_\mathcal{I} \equiv \sigma^2 /2\).
+
+    \hypertarget{independent-calculation}{%
+\subsection{Independent Calculation}\label{independent-calculation}}
+
+    Since the thermal noise is independent of everything else, we can
+\emph{just} deal with it, and neglect everything else, then add it in at
+the end. So let's begin.
+
+Let every noise visibility, at frequency \(\nu\), be called
+\(V_{i,\nu}\) (we don't label it for being noise, as we won't deal with
+any other type of visibility in this document). Then the visibility of a
+\(uv\nu\) grid cell is
+
+\begin{equation}
+    V_{uv\nu} = \frac{1}{n_{uv\nu}}\sum_i V_{i,\nu} \delta_{u_i,v_i \sim uv},
+\end{equation}
+
+where the \(\delta\) function really just means ``only count baselines
+in the \(uv\) cell'', and \(n_{uv\nu}\) is just the number of baselines
+in the \(uv\) cell at that frequency. Then of course the fourier-space
+visibility is
+
+\begin{equation}
+    V_{uv\eta} = \Delta\nu \sum e^{-2\pi i \eta \nu} V_{uv\nu} \phi_\nu,
+\end{equation}
+
+where \(\phi_\nu\) is some applied taper and \(\Delta\nu\) is the
+frequency channel width.
+
+Thus we can get the expectation and variance of \(V_{uv\eta}\):
+
+\begin{align}
+    \langle V_{uv\eta} \rangle &= 0, \\
+    {\rm Var}(V_{uv\eta}) &= \sigma^2 \sum_\nu \frac{(\Delta\nu)^2 \phi_\nu^2}{n_{uv\nu}} \equiv \sigma^2 / \tilde{n}_{uv}.
+\end{align}
+
+With
+\(\tilde{n}_{uv} = \left[\sum_\nu \frac{(\Delta\nu)^2 \phi_\nu^2}{n_{uv\nu}}\right]^{-1}\)
+an ``effective'' number of baselines in a \(uv\eta\) cell.
+
+    Now then, we have \(P_{uv\eta} = |V_{uv\eta}|^2\), and we need to
+evaluate the mean and variance of the power. For this, we simply use the
+relation that the mean and variance of a Gaussian variable squared are
+\(\sigma^2\) and \(2\sigma^4\) respectively, so:
+
+\begin{align}
+    \langle P_{uv\eta} \rangle &= \sigma^2 / \tilde{n}_{uv} \equiv {\rm Var}(V_{uv\eta}), \\
+    {\rm Var}(P_{uv\eta}) &= \frac{2 \sigma^4_\mathcal{R} + 2\sigma^4_{\mathcal{I}}}{\tilde{n}^2_{uv}} \\
+    &= \sigma^4 / \tilde{n}^2_{uv} \equiv \langle P_{uv\eta} \rangle ^2.
+\end{align}
+
+    Now, the power spectrum is circularly averaged. When doing this, we are
+careful to use the weights of each grid point, which is properly the
+inverse of the standard deviation of each bin:
+
+\begin{equation}
+    P_{u\eta} = \frac{\sum P_{uv\eta} w_{uv\eta}}{\sum w_{uv\eta}},
+\end{equation}
+
+where the sum is over all cells within an annulus, and
+
+\begin{equation}
+    w_{uv\eta}  = \frac{\tilde{n}_{uv}}{\sigma^2}.
+\end{equation}
+
+    Thus we have
+
+\begin{equation}
+    P_{u\eta} = \frac{\sum \tilde{n}_{uv} P_{uv\eta} }{\sum  \tilde{n}_{uv}}.
+\end{equation}
+
+    Finally, we need to calculate the mean and variance of this quantity:
+
+\begin{align}
+    \langle P_{u\eta} \rangle &= \frac{\sum \sigma^2}{\sum \tilde{n}_{uv}} \\
+    &=\sigma^2 \frac{n_u}{\sum \tilde{n}_{uv}},
+\end{align}
+
+where \(n_u\) is the number of \(uv\) cells in the \(u\) annulus. This
+averages down roughly as \(1/\bar{n}_{uv}\). Then the variance:
+
+\begin{align}
+    {\rm Var}(P_{u\eta}) &= \frac{\sigma^4 n_u}{(\sum \tilde{n}_{uv})^2}.
+\end{align}
+
+    \hypertarget{general-derivation}{%
+\subsection{General Derivation}\label{general-derivation}}
+
+    Here we do a (more) general derivation, where we acknowledge that there
+is EoR signal (with non-zero expectation) that may contribute to the
+variance of the power. For simplicity, we attempt to reproduce the
+conditions under which the \texttt{test\_thermal\_noise} script is being
+run: i.e.~zero foregrounds, and deterministic signal. \textbf{NOTE: in
+general neither of these assumptions is true, and this derivwation will
+have to be done again more generally}.
+
+    Let \(V_{i,\nu} = V_{S,i,\nu} + V_{N,i,\nu}\), where \(S\) stands for
+\emph{signal}.
+
+    We note that every operation up to the squaring of the visibilities is
+linear, and therefore the equations are valid for the noise term (and
+other terms can be derived similarly). Thus we require only to do
+calculations from \$\langle P\_\{uv\eta\} \rangle onwards. We have, in
+particular,
+
+\begin{align}
+    P_{uv\eta} &= |V_{uv\eta}|^2 \\
+    &= |V_{S,uv\eta} + V_{N, uv\eta}|^2 \\
+    &= ||V_{S, uv\eta}|^2 + |V_{N, uv\eta}|^2 + 2\mathcal{Re}\left\{V_{S, uv\eta}V^*_{N, uv\eta}\right\} 
+\end{align}
+
+    For the expectation of the power, each term is of course treated
+separately, and all terms involving a single \(V_N\) disappear, as
+\(\langle X Y \rangle\) for \(\langle X \rangle = 0\) and \(X,Y\)
+independent is zero. Thus the expectation of the power is
+
+\begin{align}
+    \langle P_{uv\eta} \rangle &= {\rm Var}(V_{S, uv\eta}) + \frac{\sigma^2}{\tilde{n}_{uv}} \\
+    &= \langle P_{N,uv\eta} \rangle,
+\end{align}
+
+since the \emph{variance} of the signal is zero (as it is considered
+deterministic here).
+
+    However, for the variance, we have the independent parts acting in the
+standard manner, but recall that for independent \(X,Y\),
+
+\begin{equation}
+    {\rm Var}(XY) = {\rm Var}(X){\rm Var}(Y) + {\rm Var}(X) |\langle Y \rangle|^2 + {\rm Var}(Y) |\langle X \rangle|^2.
+\end{equation}
+
+    So we have \begin{align}
+    {\rm Var}(P_{uv\eta}) = &\langle P_{N, uv\eta} \rangle^2 + \langle P_{S, uv\eta} \rangle^2 + 2 {\rm Var}(V_{N,uv\eta})P_{S,uv\eta} + \\
+        & 2 {\rm Cov}(|V_{S,uv\eta}|^2, \mathcal{Re}\left\{V_{N, uv\eta}V^*_{S, uv\eta}\right\}) + 2 {\rm Cov}(|V_{N,uv\eta}|^2, \mathcal{Re}\left\{V_{N, uv\eta}V^*_{S, uv\eta}\right\}) 
+\end{align}
+
+    Notice that the last term on the first line needs reasonably careful
+handling of the real/imaginary components, and recalling that \(S\) is
+deterministic.
+
+    Recall also that
+
+\begin{align}
+{\rm Cov}[XX, XY] &= E[X^3]E[Y] - E[X^2]E[X]E[Y]  \\
+\end{align}
+
+for independent \(X,Y\). But this is not exactly what we have. Instead,
+we have\\
+\begin{align}
+{\rm Cov}[|X|^2, \mathcal{Re} (XY)] &= E[X_\mathcal{R}^3]E[Y_\mathcal{R}] - E[X_\mathcal{R}^2]E[X_\mathcal{R}]E[Y_\mathcal{R}] -  E[X_\mathcal{I}^3]E[Y_\mathcal{I}] + E[X_\mathcal{I}^2]E[X_\mathcal{I}]E[Y_\mathcal{I}].
+\end{align}
+
+Regardless, this removes all covariance terms, as its noise part appears
+to the odd power in each, so we are left with
+
+\begin{align}
+    {\rm Var}(P_{uv\eta}) &= \langle P_{N, uv\eta} \rangle^2 + \langle P_{S, uv\eta} \rangle^2 + 2{\rm Var}(V_{N,uv\eta})|\langle V_{S,uv\eta} \rangle|^2 \\
+    &= \langle P_{N, uv\eta} \rangle \left[ \langle P_{N, uv\eta} \rangle + 2|\langle V_{S,uv\eta} \rangle|^2 \right] + \langle P_{S, uv\eta} \rangle^2
+    \end{align}
+
+    Since the signal is deterministic, we can do away with its expectation
+signs, and note that \(|V_S|^2 \equiv P_S\):
+
+\begin{align}
+    {\rm Var}(P_{uv\eta}) &= \langle P_{N, uv\eta} \rangle \left[ \langle P_{N, uv\eta} \rangle + 2P_{S,uv\eta} \right] + P_{S, uv\eta}^2
+    \end{align}
+
+    Thus, when \(\langle P_N \rangle \gg 2 P_S\), the solution is the same
+as the above independent case. But this will not be true where the
+signal power is large compared to the noise (for which we must assume
+some bins exist).
+
+    \textbf{The question is: is this correct? At the moment, I can only see
+how this would add \emph{more} power in some bins, but our numerical
+estimates suggest that the analytical variance is already too high}
+
+
+    % Add a bibliography block to the postdoc
+    
+    
+    
+    \end{document}

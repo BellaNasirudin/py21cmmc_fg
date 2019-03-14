@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import multiprocessing
 
-nrealisations = 400
+nrealisations = 50
 nthreads = 4
 
 def _produce_mock(i):
