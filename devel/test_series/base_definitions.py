@@ -115,22 +115,22 @@ class CustomLikelihood(LikelihoodInstrumental2D):
     def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[1000, 100, 2][DEBUG],
                  **kwargs):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min=10, #frequency_taper=frequency_taper,
-                         simulate=True, nthreads=1 if DEBUG else 16, nrealisations=nrealisations, ps_dim=2,
+                         simulate=True, nthreads=[16, 6, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
 
-    def store(self, model, storage):
-        """Store stuff"""
-        storage['signal'] = model[0]['p_signal'] + self.noise['mean']
+    # def store(self, model, storage):
+    #     """Store stuff"""
+    #     storage['signal'] = model[0]['p_signal'] + self.noise['mean']
 
-        # Remember that the variance is actually the variance plus the model uncertainty
-        sig_cov = self.get_signal_covariance(model[0]['p_signal'])
+    #     # Remember that the variance is actually the variance plus the model uncertainty
+    #     sig_cov = self.get_signal_covariance(model[0]['p_signal'])
 
-        # Add a "number of sigma" entry only if cov is not zero
-        if not hasattr(self.noise['covariance'], "__len__"):
-            var = 0
-        else:
-            var = np.array([np.diag(p) + np.diag(s) for p, s in zip(self.noise['covariance'], sig_cov)])
-            storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal']) / np.sqrt(var)
+    #     # Add a "number of sigma" entry only if cov is not zero
+    #     if not hasattr(self.noise['covariance'], "__len__"):
+    #         var = 0
+    #     else:
+    #         var = np.array([np.diag(p) + np.diag(s) for p, s in zip(self.noise['covariance'], sig_cov)])
+    #         storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal']) / np.sqrt(var)
 
 
 def run_mcmc(*args, model_name, params=params, **kwargs):

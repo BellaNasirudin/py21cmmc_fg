@@ -111,6 +111,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         if self.noise:
             self.noise = self.noise[0]
 
+        #Store only the p_signal
+        self.data = {"p_signal":self.data["p_signal"]}
+
     @cached_property
     def n_uv(self):
         """The number of cells on a side of the (square) UV grid"""
@@ -131,8 +134,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # as data saved to file. In case of the latter, it is useful to save extra variables to the dictionary to be
         # looked at for diagnosis, even though they are not required in computeLikelihood().
         return [dict(p_signal=p_signal, baselines=self.baselines, frequencies=self.frequencies,
-                     u=self.u, eta=self.eta, nbl_uv=self.nbl_uv, nbl_uvnu=self.nbl_uvnu,
-                     nbl_u=self.nbl_u, grid_weights=self.grid_weights)]
+                     u=self.u, eta=self.eta)]
+                     #, nbl_uv=self.nbl_uv, nbl_uvnu=self.nbl_uvnu, nbl_u=self.nbl_u, grid_weights=self.grid_weights)]
 
     def define_noise(self, ctx, model):
         """
@@ -322,6 +325,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             cov = [np.cov(x) for x in np.array(power).transpose((1, 2, 0))]
         else:
             cov = np.var(power, axis=0)
+
+        #Cleanup
+        for i in range(power):
+            del power[i];
+
+        pool.close()
+        pool.join()
 
         return mean, cov
 
