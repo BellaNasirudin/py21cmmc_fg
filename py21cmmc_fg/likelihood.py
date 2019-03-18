@@ -327,7 +327,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             cov = np.var(power, axis=0)
 
         #Cleanup
-        for i in range(power):
+        for i in range(len(power)):
             del power[i];
 
         pool.close()
