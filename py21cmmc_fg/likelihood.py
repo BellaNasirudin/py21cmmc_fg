@@ -477,7 +477,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     bins=self.u_edges, n=ps_dim,
                     weights=np.sum(self.kernel_weights, axis=2),  # weights,
                     bin_ave=False,
-                )[0][:, int(len(self.frequencies) / (2 * self.n_obs)):]  # return the positive part
+                )[0]
     
             elif ps_dim == 1:
     
@@ -491,8 +491,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 
             P[np.isnan(P)] = 0
             PS.append(P)
-        
-        self.eta = self.eta[self.eta > self.eta_min]
 
         return PS
 
@@ -691,7 +689,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         "Grid of positive frequency fourier-modes"
         dnu = self.frequencies[1] - self.frequencies[0]
         eta = fftfreq(int(len(self.frequencies) / self.n_obs), d=dnu, b=2 * np.pi)
-        return eta
+        return eta[eta > self.eta_min]
 
     @cached_property
     def grid_weights(self):
@@ -745,7 +743,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         L = int(len(freq) / n_obs)
         
         for ii in range(n_obs):
-            ft.append(fft(np.fft.ifftshift(vis[:,:,ii*L:(ii+1)*L] * taper(L), axes=(2,)), W, axes=(2,), a=0, b=2 * np.pi)[0])
+            ft.append(fft(np.fft.ifftshift(vis[:,:,ii*L:(ii+1)*L] * taper(L), axes=(2,)), W, axes=(2,), a=0, b=2 * np.pi)[0][:,:,int(L/2):])  # return the positive part)
         
         ft = np.array(ft)
         return ft
