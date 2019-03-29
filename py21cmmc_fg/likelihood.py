@@ -204,12 +204,12 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             total_model = model['p_signal'][ii]
             
             if self.ps_dim == 2:
-                sig_cov = self.get_signal_covariance(model['p_signal'][ii]) # TODO: CHANGE THIS TO COSMIC VARIANCE
+                sig_cov = self.get_cosmic_variance(model['p_signal'][ii])
     
                 if self.foreground_cores:
                     # Normal case (foreground parameters are not being updated, or there are no foregrounds)
                     total_model += self.noise["mean"][ii]
-                    total_cov = self.noise['covariance'][ii]#[x + y for x, y in zip(self.noise['covariance'], sig_cov)]
+                    total_cov = [x + y for x, y in zip(self.noise['covariance'][ii], sig_cov)]
                 else:
                     total_cov = sig_cov
                 
@@ -262,7 +262,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return cov
 
-    def get_signal_covariance(self, signal_power):
+    def get_cosmic_variance(self, signal_power):
         """
         From a 2D signal (i.e. EoR) power spectrum, make a list of covariances in eta, with length u.
 
@@ -276,14 +276,15 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         cov : list of arrays
             A length-u list of arrays of shape n_eta * n_eta.
         """
-        if self.ps_dim != 1:
+        if self.ps_dim == 2:
             cov = []
-            for sig_eta in signal_power:
-                cov.append((self.model_uncertainty * np.diag(sig_eta)) ** 2)
+            
+            for ii, sig_eta in enumerate(signal_power):
+                cov.append((1 / self.grid_weights[ii] * np.diag(sig_eta)**2))
 
             return cov
         else:
-            return 0
+            return self.grid_weights * signal_power
 
     def numerical_covariance(self, params={}, nrealisations=200, nthreads=1):
         """
@@ -694,11 +695,11 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
     @cached_property
     def grid_weights(self):
-        """The number of uv cells that go into a single u annulus (unlrelated to baseline weights)"""
+        """The number of uv cells that go into a single u annulus (unrelated to baseline weights)"""
         return angular_average_nd(
             field=np.ones((len(self.uvgrid),) * 2),
             coords=[self.uvgrid, self.uvgrid],
-            bins=self.u_edges, n=2, bin_ave=False,
+            bins=self.u_edges, n=self.ps_dim, bin_ave=False,
             average=False)[0]
 
     @cached_property
