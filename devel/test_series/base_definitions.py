@@ -29,10 +29,11 @@ if DEBUG:
 
 # ----- These should be kept the same between all tests. -------
 freq_min = 150.0
-freq_max = 160.0
+freq_max = 170.0
 z_step_factor = 1.04
 sky_size = 4.5  # in sigma
 max_tile_n = 50
+n_obs = 2
 #taper = signal.blackmanharris
 integration_time = 3600000  # 1000 hours of observation time
 tile_diameter = 4.0
@@ -50,34 +51,19 @@ DIM = 3 * HII_DIM
 BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
-nfreq = 100  # if DEBUG else 200
+nfreq = 100 if DEBUG else 200
 n_cells = 500  if DEBUG else 1000
 
 # Likelihood options
 if DEBUG == 2:
     n_ubins = 30
 else:
-    n_ubins = 30
+    n_ubins = 60
 
 # ============== END OF USER-SETTABLE STUFF
 
 z_min = 1420. / freq_max - 1
 z_max = 1420. / freq_min - 1
-
-
-def _store_lightcone(ctx):
-    """A storage function for lightcone slices"""
-    return ctx.get("lightcone").brightness_temp[0]
-
-
-def _store_2dps(ctx):
-    lc = ctx.get('lightcone')
-    p, k = fft(lc.brightness_temp, L=lc.lightcone_dimensions)
-    p = np.abs(p) ** 2
-
-    p = angular_average_nd(p, coords=k, n=2, bin_ave=False, bins=21)[0]
-
-    return p
 
 
 core_eor = CoreLightConeModule(
@@ -91,10 +77,6 @@ core_eor = CoreLightConeModule(
     z_step_factor=z_step_factor,  # How large the steps between evaluated redshifts are (log).
     regenerate=False,
     keep_data_in_memory=DEBUG,
-    store={
-        "lc_slices": _store_lightcone,
-        "2DPS": _store_2dps
-    },
     change_seed_every_iter=False,
     initial_conditions_seed=42
 )
@@ -114,24 +96,9 @@ class CustomCoreInstrument(CoreInstrumental):
 class CustomLikelihood(LikelihoodInstrumental2D):
     def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[1000, 100, 2][DEBUG],
                  **kwargs):
-        super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min=10, #frequency_taper=frequency_taper,
-                         simulate=True, nthreads=[16, 6, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
+        super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min=10, n_obs = n_obs,#frequency_taper=frequency_taper,
+                         simulate=True, nthreads=[16, 3, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
-
-    # def store(self, model, storage):
-    #     """Store stuff"""
-    #     storage['signal'] = model[0]['p_signal'] + self.noise['mean']
-
-    #     # Remember that the variance is actually the variance plus the model uncertainty
-    #     sig_cov = self.get_signal_covariance(model[0]['p_signal'])
-
-    #     # Add a "number of sigma" entry only if cov is not zero
-    #     if not hasattr(self.noise['covariance'], "__len__"):
-    #         var = 0
-    #     else:
-    #         var = np.array([np.diag(p) + np.diag(s) for p, s in zip(self.noise['covariance'], sig_cov)])
-    #         storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal']) / np.sqrt(var)
-
 
 def run_mcmc(*args, model_name, params=params, **kwargs):
     return _run_mcmc(
@@ -142,7 +109,7 @@ def run_mcmc(*args, model_name, params=params, **kwargs):
         walkersRatio=[16, 3, 2][DEBUG],  # The number of walkers will be walkersRatio*nparams
         burninIterations=0,  # Number of iterations to save as burnin. Recommended to leave as zero.
         sampleIterations=[100, 50, 2][DEBUG],  # Number of iterations to sample, per walker.
-        threadCount=[16, 6, 1][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
+        threadCount=[16, 3, 1][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
         continue_sampling=CONTINUE,  # Whether to contine sampling from previous run *up to* sampleIterations.
         **kwargs
     )
