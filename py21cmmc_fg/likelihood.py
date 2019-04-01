@@ -317,7 +317,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         pool = multiprocessing.Pool(nthreads)
         
-        power = pool.map(fnc, np.arange(nrealisations))
+        power = pool.map(fnc, np.arange(int(nrealisations/2)))
+        power2 = pool.map(fnc, np.arange(int(nrealisations/2)))
+        power.extend(power2)
         
         # Note, this covariance *already* has thermal noise built in.
         cov = []
