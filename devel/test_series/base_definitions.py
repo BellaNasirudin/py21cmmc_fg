@@ -29,11 +29,11 @@ if DEBUG:
 
 # ----- These should be kept the same between all tests. -------
 freq_min = 150.0
-freq_max = 170.0
+freq_max = 160.0
 z_step_factor = 1.04
 sky_size = 4.5  # in sigma
 max_tile_n = 50
-n_obs = 2
+n_obs = 1
 #taper = signal.blackmanharris
 integration_time = 3600000  # 1000 hours of observation time
 tile_diameter = 4.0
@@ -65,7 +65,33 @@ else:
 z_min = 1420. / freq_max - 1
 z_max = 1420. / freq_min - 1
 
+def _store_lightcone(ctx):
+    """A storage function for lightcone slices"""
+    return ctx.get("lightcone").brightness_temp[0]
 
+
+def _store_2dps(ctx):
+    lc = ctx.get('lightcone')
+    p, k = fft(lc.brightness_temp, L=lc.lightcone_dimensions)
+    p = np.abs(p) ** 2
+
+    p = angular_average_nd(p, coords=k, n=2, bin_ave=False, bins=21)[0]
+
+    return p
+
+def store(self, model, storage):
+    """Store stuff"""
+    storage['signal'] = model[0]['p_signal'] + self.noise['mean']
+    # Remember that the variance is actually the variance plus the model uncertainty
+    sig_cov = self.get_signal_covariance(model[0]['p_signal'])
+           
+    # Add a "number of sigma" entry only if cov is not zero
+    if not hasattr(self.noise['covariance'], "__len__"):
+        var = 0
+    else:
+        var = np.array([np.diag(p) + np.diag(s) for p, s in zip(self.noise['covariance'], sig_cov)])
+        storage['sigma'] = (self.data['p_signal'] - self.noise['mean'] - model[0]['p_signal']) / np.sqrt(var)
+        
 core_eor = CoreLightConeModule(
     redshift=z_min,  # Lower redshift of the lightcone
     max_redshift=z_max,  # Approximate maximum redshift of the lightcone (will be exceeded).
@@ -77,6 +103,10 @@ core_eor = CoreLightConeModule(
     z_step_factor=z_step_factor,  # How large the steps between evaluated redshifts are (log).
     regenerate=False,
     keep_data_in_memory=DEBUG,
+    store={
+        "lc_slices": _store_lightcone,
+        "2DPS": _store_2dps
+    },    
     change_seed_every_iter=False,
     initial_conditions_seed=42
 )
