@@ -21,6 +21,7 @@ from scipy.special import erf
 from scipy import signal
 from .core import CoreInstrumental, ForegroundsBase
 from .util import lognormpdf
+import os
 
 logger = logging.getLogger("21CMMC")
 
@@ -435,7 +436,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Grid visibilities only if we're not using "grid_centres"
 
         if self.baselines_type != "grid_centres":
-            visgrid = self.grid_visibilities(visibilities)
+            visgrid,kernel_weights = self.grid_visibilities(visibilities)
         else:
             visgrid = visibilities
             
@@ -443,11 +444,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         visgrid = self.frequency_fft(visgrid, self.frequencies, self.ps_dim, taper=signal.blackmanharris, n_obs = self.n_obs)#self.frequency_taper)
 
         # Get 2D power from gridded vis.
-        power2d = self.get_power(visgrid, ps_dim=self.ps_dim)
+        power2d = self.get_power(visgrid,kernel_weights, ps_dim=self.ps_dim)
 
+        if(os.path.exists("data/kernel_weights.npy")==False):
+            np.save("data/kernel_weights",kernel_weights)
+        
         return power2d
 
-    def get_power(self, gridded_vis, ps_dim=2):
+    def get_power(self, gridded_vis, kernel_weights, ps_dim=2):
         """
         Determine the 2D Power Spectrum of the observation.
 
@@ -477,7 +481,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     field=power_3d,
                     coords=[self.uvgrid, self.uvgrid, self.eta],
                     bins=self.u_edges, n=ps_dim,
-                    weights=np.sum(self.kernel_weights, axis=2),  # weights,
+                    weights=np.sum(kernel_weights, axis=2),  # weights,
                     bin_ave=False,
                 )[0]
     
@@ -487,7 +491,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     field=power_3d,
                     coords=[self.uvgrid, self.uvgrid, self.eta],
                     bins=self.u_edges,
-                    weights=self.kernel_weights,
+                    weights=kernel_weights,
                     bin_ave=False,
                 )[0]
                 
@@ -559,8 +563,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         centres = (ugrid[1:] + ugrid[:-1]) / 2
         
         visgrid = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)), dtype=np.complex128)
+
+
+        if(os.path.exists("data/kernel_weights.npy")):
+            kernel_weights = np.load("data/kernel_weights.npy")
+        else:
+            kernel_weights=None
         
-        if self.kernel_weights is None:
+        if kernel_weights is None:
             weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
         
         for jj, freq in enumerate(self.frequencies):
@@ -572,15 +582,15 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             for kk in range(len(indx_u)):
                 visgrid[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] * visibilities[kk,jj]
            
-                if self.kernel_weights is None:
+                if kernel_weights is None:
                     weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk])
 
-        if self.kernel_weights is None:
-            self.kernel_weights = weights
+        if kernel_weights is None:
+            kernel_weights = weights
             
-        visgrid[self.kernel_weights!=0] /= self.kernel_weights[self.kernel_weights!=0]
+        visgrid[kernel_weights!=0] /= kernel_weights[kernel_weights!=0]
         
-        return visgrid
+        return visgrid,kernel_weights
 
     @cached_property
     def uvgrid(self):
@@ -631,61 +641,66 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """Centres of |u| bins"""
         return (self.u_edges[1:] + self.u_edges[:-1]) / 2
 
-    @cached_property
-    def nbl_uvnu(self):
-        """The number of baselines in each u,v,nu cell"""
-
-        if self.baselines_type != "grid_centres":
-            ugrid = np.linspace(-self.uv_max, self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
-            weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
-
-            for j, f in enumerate(self.frequencies):
-                # U,V values change with frequency.
-                u = self.baselines[:, 0] * f / const.c
-                v = self.baselines[:, 1] * f / const.c
-
-                # Get number of baselines in each bin
-                weights[:, :, j] = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid])[0]
-        else:
-            weights = np.ones((self.n_uv, self.n_uv, len(self.frequencies)))
-
-        return weights
-
-    @cached_property
-    def nbl_uv(self):
-        """
-        Effective number of baselines in a uv eta cell.
-
-        See devel/noise_power_derivation for details.
-        """
-        dnu = self.frequencies[1] - self.frequencies[0]
-
-        sm = dnu ** 2 / self.nbl_uvnu
-
-        # Some of the cells may have zero baselines, and since they have no variance at all, we set them to zero.
-        sm[np.isinf(sm)] = 0
-
-        nbl_uv = 1 / np.sum(sm, axis=-1)
-        nbl_uv[np.isinf(nbl_uv)] = 0
-
-        return nbl_uv
-
-    @cached_property
-    def nbl_u(self):
-        """
-        Effective number of baselines in a |u| annulus.
-        """
-        if self.ps_dim == 2:
-            return angular_average_nd(
-                field=self.nbl_uv,
-                coords=[self.uvgrid, self.uvgrid],
-                bins=self.u_edges, n=2,
-                bin_ave=False,
-                average=False
-            )[0]
-        else:
-            return None
-
+#    def nbl_uvnu(self):
+#        """The number of baselines in each u,v,nu cell"""
+#
+#        if self.baselines_type != "grid_centres":
+#            ugrid = np.linspace(-self.uv_max, self.uv_max, self.n_uv + 1)  # +1 because these are bin edges.
+#            weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
+#
+#            for j, f in enumerate(self.frequencies):
+#                # U,V values change with frequency.
+#                u = self.baselines[:, 0] * f / const.c
+#                v = self.baselines[:, 1] * f / const.c
+#
+#                # Get number of baselines in each bin
+#                weights[:, :, j] = np.histogram2d(u.value, v.value, bins=[ugrid, ugrid])[0]
+#        else:
+#            weights = np.ones((self.n_uv, self.n_uv, len(self.frequencies)))
+#
+#        return weights
+#
+#    def nbl_uv(self):
+#        """
+#        Effective number of baselines in a uv eta cell.
+#
+#        See devel/noise_power_derivation for details.
+#        """
+#        dnu = self.frequencies[1] - self.frequencies[0]
+#
+#        sm = dnu ** 2 / self.nbl_uvnu
+#
+#        # Some of the cells may have zero baselines, and since they have no variance at all, we set them to zero.
+#        sm[np.isinf(sm)] = 0
+#
+#        nbl_uv = 1 / np.sum(sm, axis=-1)
+#        nbl_uv[np.isinf(nbl_uv)] = 0
+#
+#        return nbl_uv
+#
+#    def nbl_u(self):
+#        """
+#        Effective number of baselines in a |u| annulus.
+#        """
+#        if self.ps_dim == 2:
+#            return angular_average_nd(
+#                field=self.nbl_uv,
+#                coords=[self.uvgrid, self.uvgrid],
+#                bins=self.u_edges, n=2,
+#                bin_ave=False,
+#                average=False
+#            )[0]
+#        else:
+#            return None
+#
+#    def noise_power_expectation(self):
+#        """The expectation of the power spectrum of thermal noise (same shape as u)"""
+#        return self._instr_core.thermal_variance_baseline * self.grid_weights / self.nbl_u
+#
+#    def noise_power_variance(self):
+#        """Variance of the noise power spectrum per u bin"""
+#        return self._instr_core.thermal_variance_baseline ** 2 * self.grid_weights / self.nbl_u ** 2
+    
     @cached_property
     def eta(self):
         "Grid of positive frequency fourier-modes"
@@ -701,16 +716,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             coords=[self.uvgrid, self.uvgrid],
             bins=self.u_edges, n=self.ps_dim, bin_ave=False,
             average=False)[0]
-
-    @cached_property
-    def noise_power_expectation(self):
-        """The expectation of the power spectrum of thermal noise (same shape as u)"""
-        return self._instr_core.thermal_variance_baseline * self.grid_weights / self.nbl_u
-
-    @cached_property
-    def noise_power_variance(self):
-        """Variance of the noise power spectrum per u bin"""
-        return self._instr_core.thermal_variance_baseline ** 2 * self.grid_weights / self.nbl_u ** 2
 
     @staticmethod
     def frequency_fft(vis, freq, dim, taper=np.ones_like, n_obs =1):
