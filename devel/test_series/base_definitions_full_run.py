@@ -56,13 +56,13 @@ params = dict(  # Parameter dict as described above.
 )
 
 # ----- Options that differ between DEBUG levels --------
-HII_DIM = [300, 125, 80][DEBUG]
+HII_DIM = [250, 125, 80][DEBUG]
 DIM = 3 * HII_DIM
 BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
-nfreq = 100  if DEBUG else 300
-n_cells = 500  if DEBUG else 1000
+nfreq = 50 * n_obs  if DEBUG else 100 * n_obs
+n_cells = 300  if DEBUG else 1000
 
 # Likelihood options
 if DEBUG == 2:
@@ -75,6 +75,20 @@ else:
 z_min = 1420. / freq_max - 1
 z_max = 1420. / freq_min - 1
 
+def _store_lightcone(ctx):
+    """A storage function for lightcone slices"""
+    return ctx.get("lightcone").brightness_temp[0]
+
+
+def _store_2dps(ctx):
+    print("STORING 2DPS!!")
+    lc = ctx.get('lightcone')
+    p, k = fft(lc.brightness_temp, L=lc.lightcone_dimensions)
+    p = np.abs(p) ** 2
+
+    p = angular_average_nd(p, coords=k, n=2, bin_ave=False, bins=21)[0]
+
+    return p
 
 core_eor = CoreLightConeModule(
     redshift=z_min,  # Lower redshift of the lightcone
@@ -87,6 +101,10 @@ core_eor = CoreLightConeModule(
     z_step_factor=z_step_factor,  # How large the steps between evaluated redshifts are (log).
     regenerate=False,
     keep_data_in_memory=DEBUG,
+    store={
+        "lc_slices": _store_lightcone,
+        "2DPS": _store_2dps
+    },
     change_seed_every_iter=False,
     initial_conditions_seed=42
 )
@@ -109,7 +127,24 @@ class CustomLikelihood(LikelihoodInstrumental2D):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min= u_min, n_obs = n_obs,
                          simulate=True, nthreads=[16, 3, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
-
+    def store(self, model, storage):
+        """Store stuff"""
+        storage['signal'] = model[0]['p_signal'] + self.noise['mean']
+        
+#        # Remember that the variance is actually the variance plus the model uncertainty
+#        sig_cov = self.get_cosmic_variance(model[0]['p_signal'])
+#        
+#        # Add a "number of sigma" entry only if cov is not zero
+#        if (self.noise['covariance'] == 0) or (self.noise['covariance'] is None):
+#            var = 0
+#        else:
+#            var = []
+#            for ii in range(len(sig_cov)):
+#                print(np.shape(self.noise['covariance'][ii]), np.shape(sig_cov[ii]))
+#                var.extend(([np.diag(p) + np.diag(s) for p,s in zip(self.noise['covariance'][ii], sig_cov[ii])]))
+#                        
+#        storage['sigma'] = (self.data['p_signal'] - model[0]['p_signal'])/np.sqrt(np.array(var))
+        
 def run_mcmc(*args, model_name, params=params, **kwargs):
     return _run_mcmc(
         *args,
