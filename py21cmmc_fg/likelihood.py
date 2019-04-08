@@ -446,8 +446,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Get 2D power from gridded vis.
         power2d = self.get_power(visgrid,kernel_weights, ps_dim=self.ps_dim)
 
-        if(os.path.exists("data/kernel_weights.npy")==False):
-            np.save("data/kernel_weights",kernel_weights)
+        if(os.path.exists(self.datafile[0][:-4]+".kernel_weights.npy")==False):
+            np.save(self.datafile[0][:-4]+".kernel_weights.npy",kernel_weights)
         
         return power2d
 
@@ -565,8 +565,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         visgrid = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)), dtype=np.complex128)
 
 
-        if(os.path.exists("data/kernel_weights.npy")):
-            kernel_weights = np.load("data/kernel_weights.npy")
+        if(os.path.exists(self.datafile[0][:-4]+".kernel_weights.npy")):
+            kernel_weights = np.load(self.datafile[0][:-4]+".kernel_weights.npy")
         else:
             kernel_weights=None
         
