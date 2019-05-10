@@ -459,7 +459,7 @@ class CoreInstrumental(CoreBase):
     @property
     def sky_size(self):
         "The sky size in lm co-ordinates. This is the size *all the way across*"
-        return 2 * self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
+        return 2 #* self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
 
     @cached_property
     def sky_coords(self):
