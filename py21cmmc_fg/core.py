@@ -336,7 +336,7 @@ class CoreInstrumental(CoreBase):
 
     def __init__(self, *, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
                  integration_time=120, Tsys=240, effective_collecting_area=21.0,
-                 sky_extent=3, n_cells=300, add_beam=True,
+                 sky_extent=3, n_cells=300, add_beam=True, padding_size = 3,
                  **kwargs):
         """
         Parameters
@@ -408,6 +408,7 @@ class CoreInstrumental(CoreBase):
         self.integration_time = integration_time
         self.Tsys = Tsys
         self.add_beam = add_beam
+        self.padding_size = padding_size
 
         self.effective_collecting_area = effective_collecting_area * un.m ** 2
 
@@ -567,16 +568,56 @@ class CoreInstrumental(CoreBase):
         ctx.add("frequencies", self.instrumental_frequencies)
         ctx.add("baselines_type", self.antenna_posfile)
 
+    @staticmethod
+    def pad_with(vector, pad_width, iaxis, kwargs):
+        pad_value = kwargs.get('padder', 0)
+        vector[:pad_width[0]] = pad_value
+        vector[-pad_width[1]:] = pad_value
+        return vector
+
+    def padding_image(self, image_cube, sky_size, big_sky_size):
+        """
+        Generate a spatial padding in image cube.
+
+        Parameters
+        ----------
+        image_cube : (ncells, ncells, nfreq)-array
+            The frequency-dependent sky brightness (in arbitrary units)
+
+        sky_size : float
+            The size of the box in radians.
+
+        big_sky_size : float
+            The size of the padded box in radians.
+
+        Returns
+        -------
+        sky : (ncells, ncells, nfreq)-array
+            The sky padded with zeros along the l,m plane.
+        """
+        sky = []
+        N_pad = int((big_sky_size - sky_size)/2 * np.shape(image_cube)[0])
+        for jj in range(np.shape(image_cube)[-1]):
+            sky.append(np.pad(image_cube[:,:,jj], N_pad, self.pad_with))
+
+        sky = np.array(sky).T
+
+        return sky
+
     @profile
     def add_instrument(self, lightcone):
         # Find beam attenuation
         if self.add_beam is True:
             attenuation = self.beam(self.instrumental_frequencies)
             lightcone *= attenuation
-
-        # Fourier transform image plane to UV plane.
-        uvplane, uv = self.image_to_uv(lightcone, self.sky_size)
-
+        
+        if self.padding_size is not None:
+            lightcone = self.padding_image(lightcone, self.sky_size, self.padding_size * self.sky_size)
+            uvplane, uv = self.image_to_uv(lightcone, self.padding_size * self.sky_size)
+        else:
+            # Fourier transform image plane to UV plane.
+            uvplane, uv = self.image_to_uv(lightcone, self.sky_size)
+        
         # Fourier Transform over the (u,v) dimension and baselines sampling
         if self.antenna_posfile != "grid_centres":
             visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
