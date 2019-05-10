@@ -18,7 +18,7 @@ from powerbox import LogNormalPowerBox
 from powerbox.dft import fft, fftfreq
 from py21cmmc.mcmc.core import CoreBase, NotSetupError
 from scipy.integrate import quad
-from scipy.interpolate import RegularGridInterpolator
+from scipy.interpolate import RegularGridInterpolator, RectBivariateSpline
 
 logger = logging.getLogger("21CMMC")
 
@@ -801,11 +801,11 @@ class CoreInstrumental(CoreBase):
             real = np.real(uvplane[:, :, i])
             imag = np.imag(uvplane[:, :, i])
             
-            f_real = RegularGridInterpolator([uv[0], uv[1]], real, bounds_error=False, fill_value=0)
-            f_imag = RegularGridInterpolator([uv[0], uv[1]], imag, bounds_error=False, fill_value=0)
+            f_real = RectBivariateSpline(uv[0], uv[1], real)
+            f_imag = RectBivariateSpline(uv[0], uv[1], imag)
             
-            FT_real = f_real(arr)
-            FT_imag = f_imag(arr)
+            FT_real = f_real(arr[:, 0], arr[:, 1], grid=False)
+            FT_imag = f_imag(arr[:, 0], arr[:, 1], grid=False)
             
             vis[:, i] = FT_real + FT_imag * 1j
 
