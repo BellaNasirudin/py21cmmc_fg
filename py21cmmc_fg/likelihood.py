@@ -333,7 +333,11 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 cov.append([np.cov(x) for x in np.array(power)[:,ii,:,:].transpose((1, 2, 0))])
             else:
                 cov = np.var(np.array(power)[:,ii,:,:], axis=0)
-            
+
+        #Cleanup the memory
+        for i in range(len(power)-1,-1,-1):
+            del power[i]    
+                   
         pool.close()
         pool.join()
 
