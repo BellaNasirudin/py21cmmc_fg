@@ -62,7 +62,7 @@ BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
 nfreq = 50 * n_obs  if DEBUG else 100 * n_obs
-n_cells = 300  if DEBUG else 1000
+n_cells = 300  if DEBUG else 800
 
 # Likelihood options
 if DEBUG == 2:
