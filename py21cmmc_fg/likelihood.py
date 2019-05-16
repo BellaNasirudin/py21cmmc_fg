@@ -584,7 +584,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             beam, indx_u, indx_v = self.fourierBeam(centres, u_bl, v_bl, freq, N=N)
             
             for kk in range(len(indx_u)):
-                visgrid[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] * visibilities[kk,jj]
+                visgrid[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,jj]
            
                 if kernel_weights is None:
                     weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk])
