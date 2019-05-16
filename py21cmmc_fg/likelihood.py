@@ -29,7 +29,7 @@ logger = logging.getLogger("21CMMC")
 class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
 
-    def __init__(self, n_uv=None, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman, n_obs=1,
+    def __init__(self, n_uv=1000, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman, n_obs=1,
                  nrealisations=100, nthreads=1, model_uncertainty=0.15, eta_min=0, use_analytical_noise=False, ps_dim=2,
                  **kwargs):
         """
@@ -504,7 +504,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return PS
 
-    def fourierBeam(self, centres, u_bl, v_bl, frequency, min_attenuation = 1e-5, N = 20):
+    def fourierBeam(self, centres, u_bl, v_bl, frequency, min_attenuation = 1e-6, N = 20):
         """
         Find the Fourier Transform of the Gaussian beam
         
