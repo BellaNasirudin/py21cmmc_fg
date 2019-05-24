@@ -504,7 +504,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return PS
 
-    def fourierBeam(self, centres, u_bl, v_bl, frequency, min_attenuation = 1e-6, N = 20):
+    def fourierBeam(self, centres, u_bl, v_bl, frequency, min_attenuation = 1e-10, N = 20):
         """
         Find the Fourier Transform of the Gaussian beam
         
@@ -544,7 +544,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                    
         return beam, indx_u, indx_v
 
-    def grid_visibilities(self, visibilities, N = 50):
+    def grid_visibilities(self, visibilities, N = 100):
         """
         Grid a set of visibilities from baselines onto a UV grid.
 

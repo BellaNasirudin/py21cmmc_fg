@@ -22,7 +22,7 @@ Here are the tests:
 from base_definitions import CustomCoreInstrument, CustomLikelihood, core_eor, run_mcmc, DEBUG
 from py21cmmc_fg.core import CorePointSourceForegrounds
 
-model_name = "MWATestNoise-SKA"
+model_name = "MWATestNoise-SKA-150MHz"
 
 core_instr = CustomCoreInstrument(
     antenna_posfile = 'mwa_phase2', # use a special grid of *baselines*.

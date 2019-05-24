@@ -52,7 +52,7 @@ BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
 nfreq = 50 * n_obs if DEBUG else 100 * n_obs
-n_cells = 500  if DEBUG else 800
+n_cells = 500  if DEBUG else 1200
 
 # Likelihood options
 if DEBUG == 2:
@@ -114,7 +114,7 @@ class CustomLikelihood(LikelihoodInstrumental2D):
     def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[1000, 100, 6][DEBUG],
                  **kwargs):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min=10, n_obs = n_obs,#frequency_taper=frequency_taper,
-                         simulate=True, nthreads=[10, 3, 3][DEBUG], nrealisations=nrealisations, ps_dim=2,
+                         simulate=True, nthreads=[5, 3, 3][DEBUG], nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
 
     def store(self, model, storage):
@@ -141,10 +141,10 @@ def run_mcmc(*args, model_name, params=params, **kwargs):
         datadir='data',  # Directory for all outputs
         model_name=model_name,  # Filename of main chain output
         params=params,
-        walkersRatio=[10, 3, 3][DEBUG],  # The number of walkers will be walkersRatio*nparams
+        walkersRatio=[5, 3, 3][DEBUG],  # The number of walkers will be walkersRatio*nparams
         burninIterations=0,  # Number of iterations to save as burnin. Recommended to leave as zero.
-        sampleIterations=[100, 50, 15][DEBUG],  # Number of iterations to sample, per walker.
-        threadCount=[10, 3, 3][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
+        sampleIterations=[1, 50, 15][DEBUG],  # Number of iterations to sample, per walker.
+        threadCount=[5, 3, 3][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
         continue_sampling=CONTINUE,  # Whether to contine sampling from previous run *up to* sampleIterations.
         **kwargs
     )

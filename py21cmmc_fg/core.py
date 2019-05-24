@@ -336,7 +336,7 @@ class CoreInstrumental(CoreBase):
 
     def __init__(self, *, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
                  integration_time=120, Tsys=240, effective_collecting_area=21.0,
-                 sky_extent=3, n_cells=300, add_beam=True, padding_size = 3,
+                 sky_extent=3, n_cells=300, add_beam=True, padding_size = 2,
                  **kwargs):
         """
         Parameters
@@ -459,7 +459,7 @@ class CoreInstrumental(CoreBase):
     @property
     def sky_size(self):
         "The sky size in lm co-ordinates. This is the size *all the way across*"
-        return 2 #* self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
+        return 1 #* self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
 
     @cached_property
     def sky_coords(self):
@@ -550,7 +550,7 @@ class CoreInstrumental(CoreBase):
         box = 0
         if lightcone is not None:
             box += self.prepare_sky_lightcone(lightcone.brightness_temp)
-
+        np.savez("lightcone", eor = lightcone.brightness_temp, eor_stitched = box)
         # Now get foreground visibilities and add them in
         foregrounds = ctx.get("foregrounds", [])
 
@@ -612,12 +612,13 @@ class CoreInstrumental(CoreBase):
             lightcone *= attenuation
         
         if self.padding_size is not None:
+            logger.info("Padding the image")
             lightcone = self.padding_image(lightcone, self.sky_size, self.padding_size * self.sky_size)
             uvplane, uv = self.image_to_uv(lightcone, self.padding_size * self.sky_size)
         else:
             # Fourier transform image plane to UV plane.
             uvplane, uv = self.image_to_uv(lightcone, self.sky_size)
-        
+        logger.info(uv[0], np.diff(uv[0])[0])
         # Fourier Transform over the (u,v) dimension and baselines sampling
         if self.antenna_posfile != "grid_centres":
             visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
