@@ -50,8 +50,8 @@ max_bl_length = 250 if DEBUG else 300
 # MCMC OPTIONS
 params = dict(  # Parameter dict as described above.
     HII_EFF_FACTOR=[20.0, 10.0, 250.0, 3.0],
-    ION_Tvir_MIN=[3.0, 1, 100, 0.1],
-    L_X = [40.5, 38, 42, 0.1],
+    ION_Tvir_MIN=[3.0, 1, 100, 1.0],
+    L_X = [40.5, 38, 42, 2.0],
     NU_X_THRESH =[500, 100, 1500, 50],
 )
 
@@ -62,7 +62,7 @@ BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
 nfreq = 50 * n_obs  if DEBUG else 100 * n_obs
-n_cells = 300  if DEBUG else 800
+n_cells = 300  if DEBUG else 900
 
 # Likelihood options
 if DEBUG == 2:
@@ -81,14 +81,7 @@ def _store_lightcone(ctx):
 
 
 def _store_2dps(ctx):
-    print("STORING 2DPS!!")
-    lc = ctx.get('lightcone')
-    p, k = fft(lc.brightness_temp, L=lc.lightcone_dimensions)
-    p = np.abs(p) ** 2
-
-    p = angular_average_nd(p, coords=k, n=2, bin_ave=False, bins=21)[0]
-
-    return p
+    return 0
 
 core_eor = CoreLightConeModule(
     redshift=z_min,  # Lower redshift of the lightcone
@@ -98,6 +91,12 @@ core_eor = CoreLightConeModule(
         BOX_LEN=BOX_LEN,
         DIM=DIM
     ),
+    astro_params={
+        "HII_EFF_FACTOR":params["HII_EFF_FACTOR"][0],
+        "ION_Tvir_MIN":params["ION_Tvir_MIN"][0],
+        "L_X":params["L_X"][0],
+        "NU_X_THRESH":params["NU_X_THRESH"][0]
+    },
     z_step_factor=z_step_factor,  # How large the steps between evaluated redshifts are (log).
     regenerate=False,
     keep_data_in_memory=DEBUG,
@@ -122,28 +121,14 @@ class CustomCoreInstrument(CoreInstrumental):
 
 
 class CustomLikelihood(LikelihoodInstrumental2D):
-    def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[1000, 100, 2][DEBUG],
+    def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[700, 100, 2][DEBUG],
                  **kwargs):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min= u_min, n_obs = n_obs,
-                         simulate=True, nthreads=[10, 3, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
+                         simulate=True, nthreads=[7, 3, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
     def store(self, model, storage):
         """Store stuff"""
-        storage['signal'] = model[0]['p_signal'] + self.noise['mean']
-        
-#        # Remember that the variance is actually the variance plus the model uncertainty
-#        sig_cov = self.get_cosmic_variance(model[0]['p_signal'])
-#        
-#        # Add a "number of sigma" entry only if cov is not zero
-#        if (self.noise['covariance'] == 0) or (self.noise['covariance'] is None):
-#            var = 0
-#        else:
-#            var = []
-#            for ii in range(len(sig_cov)):
-#                print(np.shape(self.noise['covariance'][ii]), np.shape(sig_cov[ii]))
-#                var.extend(([np.diag(p) + np.diag(s) for p,s in zip(self.noise['covariance'][ii], sig_cov[ii])]))
-#                        
-#        storage['sigma'] = (self.data['p_signal'] - model[0]['p_signal'])/np.sqrt(np.array(var))
+        storage['signal'] = model[0]['p_signal'] #+ self.noise['mean']
         
 def run_mcmc(*args, model_name, params=params, **kwargs):
     return _run_mcmc(
@@ -151,10 +136,10 @@ def run_mcmc(*args, model_name, params=params, **kwargs):
         datadir='data',  # Directory for all outputs
         model_name=model_name,  # Filename of main chain output
         params=params,
-        walkersRatio=[10, 3, 2][DEBUG],  # The number of walkers will be walkersRatio*nparams
+        walkersRatio=[7, 3, 2][DEBUG],  # The number of walkers will be walkersRatio*nparams
         burninIterations=0,  # Number of iterations to save as burnin. Recommended to leave as zero.
-        sampleIterations=[100, 50, 2][DEBUG],  # Number of iterations to sample, per walker.
-        threadCount=[10, 3, 1][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
+        sampleIterations=[20, 50, 2][DEBUG],  # Number of iterations to sample, per walker.
+        threadCount=[7, 3, 1][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
         continue_sampling=CONTINUE,  # Whether to contine sampling from previous run *up to* sampleIterations.
         **kwargs
     )
