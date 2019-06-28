@@ -754,7 +754,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         L = int(len(freq) / n_obs)
         
         for ii in range(n_obs):
-            ft.append(fft(np.fft.ifftshift(vis[:,:,ii*L:(ii+1)*L] * taper(L), axes=(2,)), W, axes=(2,), a=0, b=2 * np.pi)[0][:,:,int(L/2):])  # return the positive part)
+            ft.append(fft(vis[:,:,ii*L:(ii+1)*L] * taper(L), W, axes=(2,), a=0, b=2 * np.pi)[0][:,:,int(L/2):])  # return the positive part)
         
         ft = np.array(ft)
         return ft

@@ -757,7 +757,7 @@ class CoreInstrumental(CoreBase):
             The u and v co-ordinates of the uvsky, respectively. Units are inverse of L.
         """
         logger.info("Converting to UV space...")
-        ft, uv_scale = fft(np.fft.ifftshift(sky, axes=(0, 1)), L, axes=(0, 1), a=0, b=2 * np.pi)
+        ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
         return ft, uv_scale
 
     @profile
