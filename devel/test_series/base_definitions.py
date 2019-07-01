@@ -51,7 +51,7 @@ BOX_LEN = 3 * HII_DIM
 
 # Instrument Options
 nfreq = 50 * n_obs if DEBUG else 100 * n_obs
-n_cells = 500  if DEBUG else 900
+n_cells = 500  if DEBUG else 800
 
 # Likelihood options
 if DEBUG == 2:
@@ -66,7 +66,7 @@ z_max = 1420. / freq_min - 1
 
 def _store_lightcone(ctx):
     """A storage function for lightcone slices"""
-    return ctx.get("lightcone").brightness_temp[0]
+    return 0#ctx.get("lightcone").brightness_temp[0]
 
 
 def _store_2dps(ctx):
@@ -101,7 +101,7 @@ class CustomCoreInstrument(CoreInstrumental):
                  sky_size=sky_size, n_cells=n_cells, tile_diameter=tile_diameter,
                  integration_time=integration_time,max_bl_length = max_bl_length,
                  **kwargs):
-        super().__init__(freq_max=freq_max, freq_min=freq_min,
+        super().__init__(freq_max=freq_max, freq_min=freq_min, n_obs = n_obs,
                          nfreq=nfreq, tile_diameter=tile_diameter, integration_time=integration_time,
                          sky_extent=sky_size, n_cells=n_cells, max_bl_length = max_bl_length,
                          **kwargs)
