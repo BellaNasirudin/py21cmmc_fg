@@ -19,6 +19,8 @@ from powerbox.dft import fft, fftfreq
 from py21cmmc.mcmc.core import CoreBase, NotSetupError
 from scipy.integrate import quad
 from scipy.interpolate import RegularGridInterpolator, RectBivariateSpline
+import multiprocessing as mp
+import ctypes
 
 logger = logging.getLogger("21CMMC")
 
@@ -335,7 +337,7 @@ class CoreInstrumental(CoreBase):
     """
 
     def __init__(self, *, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
-                 integration_time=120, Tsys=240, effective_collecting_area=21.0,
+                 integration_time=120, Tsys=240, effective_collecting_area=21.0, n_obs = 1,
                  sky_extent=3, n_cells=300, add_beam=True, padding_size = 3,
                  **kwargs):
         """
@@ -409,6 +411,7 @@ class CoreInstrumental(CoreBase):
         self.Tsys = Tsys
         self.add_beam = add_beam
         self.padding_size = padding_size
+        self.n_obs = n_obs
 
         self.effective_collecting_area = effective_collecting_area * un.m ** 2
 
@@ -620,7 +623,7 @@ class CoreInstrumental(CoreBase):
         
         # Fourier Transform over the (u,v) dimension and baselines sampling
         if self.antenna_posfile != "grid_centres":
-            visibilities = self.sample_onto_baselines(uvplane, uv, self.baselines, self.instrumental_frequencies)
+            visibilities = self.sample_onto_baselines_parallel(uvplane, uv, self.baselines, self.instrumental_frequencies)
         else:
             visibilities = uvplane
             self.baselines = uv[1]
@@ -760,9 +763,67 @@ class CoreInstrumental(CoreBase):
         ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
         return ft, uv_scale
 
+    def sample_onto_baselines_parallel(self, uvplane, uv, baselines, frequencies):
+
+        #Find out the number of frequencies to process per thread
+        nfreq = len(frequencies)
+        ncells = uvplane.shape[0]
+        numperthread = int(np.ceil(nfreq/self.n_obs))
+        offset = 0
+        nfreqstart = np.zeros(self.n_obs,dtype=int)
+        nfreqend = np.zeros(self.n_obs,dtype=int)
+        infreq = np.zeros(self.n_obs,dtype=int)
+        for i in range(self.n_obs):
+            nfreqstart[i] = offset
+            nfreqend[i] = offset + numperthread
+
+            if(i==self.n_obs-1):
+                infreq[i] = nfreq - offset
+            else:
+                infreq[i] = numperthread
+
+            offset+=numperthread
+
+        # Set the last process to the number of frequencies
+        nfreqend[-1] = nfreq
+        processes = []
+        vis_real = []
+        vis_imag = []
+
+        vis = np.zeros([baselines.shape[0],nfreq],dtype=np.complex128)
+
+        #Lets split this array up into chunks
+        for i in range(self.n_obs):
+
+            #Get the buffer that contains the memory
+            vis_buff_real = mp.RawArray(np.sctype2char(vis.real),vis[:,nfreqstart[i]:nfreqend[i]].size)
+            vis_buff_imag = mp.RawArray(np.sctype2char(vis.real),vis[:,nfreqstart[i]:nfreqend[i]].size)
+            vis_tmp_real = np.frombuffer(vis_buff_real)
+            vis_tmp_imag = np.frombuffer(vis_buff_imag)
+            vis_tmp_real = vis[:,nfreqstart[i]:nfreqend[i]].real.flatten()
+            vis_tmp_imag = vis[:,nfreqstart[i]:nfreqend[i]].imag.flatten()
+
+            vis_real.append(vis_buff_real)
+            vis_imag.append(vis_buff_imag)
+
+            processes.append(mp.Process(target=self.sample_onto_baselines,args=(ncells,nfreq,nfreqstart[i],uvplane, uv, baselines, frequencies[nfreqstart[i]:nfreqend[i]], vis_buff_real,vis_buff_imag) ))
+
+        for p in processes:
+            p.start()
+
+        for p in processes:
+            p.join()
+
+        for i in range(self.n_obs):
+            vis.real[:,nfreqstart[i]:nfreqend[i]] = np.frombuffer(vis_real[i]).reshape(baselines.shape[0],nfreqend[i] - nfreqstart[i])
+            vis.imag[:,nfreqstart[i]:nfreqend[i]] = np.frombuffer(vis_imag[i]).reshape(baselines.shape[0],nfreqend[i] - nfreqstart[i])
+
+        return vis
+
+
     @profile
     @staticmethod
-    def sample_onto_baselines(uvplane, uv, baselines, frequencies):
+    def sample_onto_baselines(ncells,nfreqall, nfreqoffset,uvplane, uv, baselines, frequencies, vis_buff_real, vis_buff_imag):
         """
         Sample a gridded UV sky onto a set of baselines.
 
@@ -789,8 +850,10 @@ class CoreInstrumental(CoreBase):
 
         """
 
+        vis_real = np.frombuffer(vis_buff_real).reshape(baselines.shape[0],len(frequencies))
+        vis_imag = np.frombuffer(vis_buff_imag).reshape(baselines.shape[0],len(frequencies))
+
         frequencies = frequencies / un.s
-        vis = np.zeros((len(baselines), len(frequencies)), dtype=np.complex128)
         
         logger.info("Sampling the data onto baselines...")
 
@@ -800,18 +863,17 @@ class CoreInstrumental(CoreBase):
             arr[:, 0] = (baselines[:, 0] / lamb).value
             arr[:, 1] = (baselines[:, 1] / lamb).value
             
-            real = np.real(uvplane[:, :, i])
-            imag = np.imag(uvplane[:, :, i])
+            real = uvplane.real[:, :, i+nfreqoffset]
+            imag = uvplane.imag[:, :, i+nfreqoffset]
             
             f_real = RectBivariateSpline(uv[0], uv[1], real)
             f_imag = RectBivariateSpline(uv[0], uv[1], imag)
             
             FT_real = f_real(arr[:, 0], arr[:, 1], grid=False)
             FT_imag = f_imag(arr[:, 0], arr[:, 1], grid=False)
-            
-            vis[:, i] = FT_real + FT_imag * 1j
+            vis_real[:, i] = FT_real
+            vis_imag[:, i] =  FT_imag
 
-        return vis
 
     @profile
     @staticmethod

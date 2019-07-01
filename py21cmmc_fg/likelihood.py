@@ -22,6 +22,20 @@ from scipy import signal
 from .core import CoreInstrumental, ForegroundsBase
 from .util import lognormpdf
 import os
+import time
+
+class NoDaemonProcess(multiprocessing.Process):
+    # make 'daemon' attribute always return False
+    def _get_daemon(self):
+        return False
+    def _set_daemon(self, value):
+        pass
+    daemon = property(_get_daemon, _set_daemon)
+
+# We sub-class multiprocessing.pool.Pool instead of multiprocessing.Pool
+# because the latter is only a wrapper function, not a proper class.
+class MyPool(multiprocessing.pool.Pool):
+    Process = NoDaemonProcess
 
 logger = logging.getLogger("21CMMC")
 
@@ -316,7 +330,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # this object just so that we can do multiprocessing on it.
         fnc = partial(_produce_mock, self, params)
 
-        pool = multiprocessing.Pool(nthreads)
+        pool = MyPool(nthreads)
         
         power = pool.map(fnc, np.arange(int(nrealisations/2)))
         power2 = pool.map(fnc, np.arange(int(nrealisations/2)))
@@ -531,7 +545,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         beam = []
         
         for jj in range(len(u_bl)):
-            x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)])
+            x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)],copy=False)
             B = (np.exp(- ((x - u_bl[jj])**2 + (y - v_bl[jj])**2 )/ a)).T
             B[B<min_attenuation] = 0
             beam.append(B)
