@@ -124,7 +124,7 @@ class CustomLikelihood(LikelihoodInstrumental2D):
     def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[700, 100, 2][DEBUG],
                  **kwargs):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min= u_min, n_obs = n_obs,
-                         simulate=True, nthreads=[7, 3, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
+                         simulate=False, nthreads=[7, 3, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
     def store(self, model, storage):
         """Store stuff"""
@@ -136,10 +136,10 @@ def run_mcmc(*args, model_name, params=params, **kwargs):
         datadir='data',  # Directory for all outputs
         model_name=model_name,  # Filename of main chain output
         params=params,
-        walkersRatio=[7, 3, 2][DEBUG],  # The number of walkers will be walkersRatio*nparams
+        walkersRatio=[6, 3, 2][DEBUG],  # The number of walkers will be walkersRatio*nparams
         burninIterations=0,  # Number of iterations to save as burnin. Recommended to leave as zero.
         sampleIterations=[20, 50, 2][DEBUG],  # Number of iterations to sample, per walker.
-        threadCount=[7, 3, 1][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
+        threadCount=[3, 3, 1][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
         continue_sampling=CONTINUE,  # Whether to contine sampling from previous run *up to* sampleIterations.
         **kwargs
     )
