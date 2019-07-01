@@ -68,6 +68,7 @@ setup(
     install_requires=[
         'numpy',
         'py21cmmc',
+        'powerbox==0.6.0',
     ],
     package_data={"py21cmmc_fg":['data/*']},
     ext_modules=[

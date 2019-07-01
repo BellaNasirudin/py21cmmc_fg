@@ -558,7 +558,58 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                    
         return beam, indx_u, indx_v
 
-    def grid_visibilities(self, visibilities, N = 120):
+    @staticmethod
+    def grid_visibilities_parallel(n_uv,visgrid_buff_real,visgrid_buff_imag,weights_buff, visibilities,frequencies,baselines,centres,sigfreq, min_attenuation = 1e-10,N = 120):
+
+        logger.info("Gridding the visibilities")
+
+        nfreq = len(frequencies)
+
+        vis_real = np.frombuffer(visgrid_buff_real).reshape(n_uv,n_uv,nfreq)
+        vis_imag = np.frombuffer(visgrid_buff_imag).reshape(n_uv,n_uv,nfreq)
+
+        if(weights_buff is not None):
+            weights = np.frombuffer(weights_buff).reshape(n_uv,n_uv,nfreq)
+
+        for ii in range(nfreq):
+
+            freq = frequencies[ii]
+
+            u_bl = (baselines[:,0] * freq / const.c).value
+            v_bl = (baselines[:,1] * freq / const.c).value
+
+            a = 1/ (2 * sigfreq[ii]**2)
+
+            indx_u = np.digitize(u_bl, centres)
+            indx_v = np.digitize(v_bl, centres)
+
+            beam = np.zeros([len(u_bl),N,N])
+            xshape = np.zeros(len(u_bl),dtype=int)
+            yshape = np.zeros(len(u_bl),dtype=int)
+
+            for jj in range(len(u_bl)):
+                x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)],copy=False)
+                B = (np.exp(- ((x - u_bl[jj])**2 + (y - v_bl[jj])**2 )/ a)).T
+                B[B<min_attenuation] = 0
+                xshape[jj] = B.shape[0]
+                yshape[jj] = B.shape[1]
+                beam[jj][:xshape[jj],:yshape[jj]] = B
+
+            indx_u+= -int(N/2)
+            indx_v+= -int(N/2)
+
+            indx_u[indx_u<0] = 0
+            indx_v[indx_v<0] = 0
+
+            for kk in range(len(indx_u)):
+                vis_real[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]]) * visibilities[kk,ii].real
+                vis_imag[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]]) * visibilities[kk,ii].imag
+
+                if weights_buff is not None:
+                    weights[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]])
+
+
+    def grid_visibilities(self, visibilities,min_attenuation = 1e-10, N = 120):
         """
         Grid a set of visibilities from baselines onto a UV grid.
 
@@ -574,8 +625,30 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         visgrid : (ngrid, ngrid, n_freq)-array
             The visibility grid, in Jy.
         """
-        logger.info("Gridding the visibilities")
-        
+
+        #Find out the number of frequencies to process per thread
+        nfreq = len(self.frequencies)
+        numperthread = int(np.ceil(nfreq/self.n_obs))
+        offset = 0
+        nfreqstart = np.zeros(self.n_obs,dtype=int)
+        nfreqend = np.zeros(self.n_obs,dtype=int)
+        infreq = np.zeros(self.n_obs,dtype=int)
+        for i in range(self.n_obs):
+            nfreqstart[i] = offset
+            nfreqend[i] = offset + numperthread
+
+            if(i==self.n_obs-1):
+                infreq[i] = nfreq - offset
+            else:
+                infreq[i] = numperthread
+
+            offset+=numperthread
+
+         # Set the last process to the number of frequencies
+        nfreqend[-1] = nfreq
+
+        processes = []
+
         ugrid = np.linspace(-self.uv_max, self.uv_max, self.n_uv +1 )  # +1 because these are bin edges.
         
         centres = (ugrid[1:] + ugrid[:-1]) / 2
@@ -590,25 +663,101 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         
         if kernel_weights is None:
             weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
-        
-        for jj, freq in enumerate(self.frequencies):
-            u_bl = (self.baselines[:,0] * freq / const.c).value
-            v_bl = (self.baselines[:,1] * freq / const.c).value
-            
-            beam, indx_u, indx_v = self.fourierBeam(centres, u_bl, v_bl, freq, N=N)
-            
-            for kk in range(len(indx_u)):
-                visgrid[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,jj]
-           
-                if kernel_weights is None:
-                    weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk])
+
+        visgrid_buff_real = []
+        visgrid_buff_imag = []
+        weights_buff = []
+
+        #Lets split this array up into chunks
+        for i in range(self.n_obs):
+
+            visgrid_buff_real.append(multiprocessing.RawArray(np.sctype2char(visgrid.real),visgrid[:,:,nfreqstart[i]:nfreqend[i]].size))
+            visgrid_buff_imag.append(multiprocessing.RawArray(np.sctype2char(visgrid.imag),visgrid[:,:,nfreqstart[i]:nfreqend[i]].size))
+            visgrid_tmp_real = np.frombuffer(visgrid_buff_real[i])
+            visgrid_tmp_imag = np.frombuffer(visgrid_buff_imag[i])
+            visgrid_tmp_real = visgrid[:,:,nfreqstart[i]:nfreqend[i]].real.flatten()
+            visgrid_tmp_imag = visgrid[:,:,nfreqstart[i]:nfreqend[i]].imag.flatten()
+
+
+            if(kernel_weights is None):
+                weights_buff.append(multiprocessing.RawArray(np.sctype2char(weights),weights[:,:,nfreqstart[i]:nfreqend[i]].size))
+                weights_tmp = np.frombuffer(weights_buff[i])
+                weights_tmp = weights[:,:,nfreqstart[i]:nfreqend[i]]
+            else:
+                weights_buff=None
+
+            processes.append(multiprocessing.Process(target=self.grid_visibilities_parallel,args=(self.n_uv,visgrid_buff_real[i],visgrid_buff_imag[i],weights_buff[i], visibilities[:,nfreqstart[i]:nfreqend[i]],self.frequencies[nfreqstart[i]:nfreqend[i]],self.baselines,centres,self._instr_core.sigma(self.frequencies[nfreqstart[i]:nfreqend[i]]),min_attenuation, N) ))
+
+        for p in processes:
+            p.start()
+
+        for p in processes:
+            p.join()
+
+        for i in range(self.n_obs):
+
+            visgrid[:,:,nfreqstart[i]:nfreqend[i]].real = np.frombuffer(visgrid_buff_real[i]).reshape(self.n_uv,self.n_uv,nfreqend[i]-nfreqstart[i])
+            visgrid[:,:,nfreqstart[i]:nfreqend[i]].imag = np.frombuffer(visgrid_buff_imag[i]).reshape(self.n_uv,self.n_uv,nfreqend[i]-nfreqstart[i])
+
+            if(kernel_weights is None):
+                weights[:,:,nfreqstart[i]:nfreqend[i]] = np.frombuffer(weights_buff[i]).reshape(self.n_uv,self.n_uv,nfreqend[i]-nfreqstart[i])
 
         if kernel_weights is None:
             kernel_weights = weights
-            
-        visgrid[kernel_weights!=0] /= kernel_weights[kernel_weights!=0]
         
+        visgrid[kernel_weights!=0] /= kernel_weights[kernel_weights!=0]
+
         return visgrid,kernel_weights
+
+    # def grid_visibilities(self, visibilities, N = 120):
+    #     """
+    #     Grid a set of visibilities from baselines onto a UV grid.
+
+    #     Uses Fourier (Gaussian) beam weighting to perform the gridding.
+
+    #     Parameters
+    #     ----------
+    #     visibilities : complex (n_baselines, n_freq)-array
+    #         The visibilities at each basline and frequency.
+
+    #     Returns
+    #     -------
+    #     visgrid : (ngrid, ngrid, n_freq)-array
+    #         The visibility grid, in Jy.
+    #     """
+    #     logger.info("Gridding the visibilities")
+
+    #     ugrid = np.linspace(-self.uv_max, self.uv_max, self.n_uv +1 )  # +1 because these are bin edges.
+
+    #     centres = (ugrid[1:] + ugrid[:-1]) / 2
+
+    #     visgrid = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)), dtype=np.complex128)
+
+    #     if(os.path.exists(self.datafile[0][:-4]+".kernel_weights.npy")):
+    #         kernel_weights = np.load(self.datafile[0][:-4]+".kernel_weights.npy")
+    #     else:
+    #         kernel_weights=None
+
+    #     if kernel_weights is None:
+    #         weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
+
+    #     for jj, freq in enumerate(self.frequencies):
+    #         u_bl = (self.baselines[:,0] * freq / const.c).value
+    #         v_bl = (self.baselines[:,1] * freq / const.c).value
+
+    #         beam, indx_u, indx_v = self.fourierBeam(centres, u_bl, v_bl, freq, N=N)
+    #         for kk in range(len(indx_u)):
+    #             visgrid[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,jj]
+
+    #             if kernel_weights is None:
+    #                 weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk])
+
+    #     if kernel_weights is None:
+    #         kernel_weights = weights
+
+    #     visgrid[kernel_weights!=0] /= kernel_weights[kernel_weights!=0]
+
+    #     return visgrid,kernel_weights
 
     @cached_property
     def uvgrid(self):
