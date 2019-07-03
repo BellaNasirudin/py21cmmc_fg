@@ -684,7 +684,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 weights_tmp = np.frombuffer(weights_buff[i])
                 weights_tmp = weights[:,:,nfreqstart[i]:nfreqend[i]]
             else:
-                weights_buff=None
+                weights_buff.append(None)
 
             processes.append(multiprocessing.Process(target=self.grid_visibilities_parallel,args=(self.n_uv,visgrid_buff_real[i],visgrid_buff_imag[i],weights_buff[i], visibilities[:,nfreqstart[i]:nfreqend[i]],self.frequencies[nfreqstart[i]:nfreqend[i]],self.baselines,centres,self._instr_core.sigma(self.frequencies[nfreqstart[i]:nfreqend[i]]),min_attenuation, N) ))
 
