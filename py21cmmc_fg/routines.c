@@ -29,7 +29,7 @@ void interpolate_visibility_frequencies(int n_bl, int nf_in, int nf_out, complex
     }
 }
 
-void interpolate_map_frequencies(int n_map, int nf_in, int nf_out, double *map, double *freq_in,
+void interpolate_map_frequencies(int n_map, int nf_in, int nf_out, float *map, double *freq_in,
                                  double *freq_out, int nmap_is_all, double *out){
     /*
         Linearly interpolate each cell in a map onto a given set of frequencies.

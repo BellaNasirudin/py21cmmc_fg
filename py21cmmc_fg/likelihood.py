@@ -39,6 +39,13 @@ class MyPool(multiprocessing.pool.Pool):
 
 logger = logging.getLogger("21CMMC")
 
+try:
+    profile
+except:
+    def profile(fnc):
+        return fnc
+
+print("PROFILING FUNCTION: ", profile)
 
 class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
@@ -118,6 +125,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         
         self.kernel_weights = None # set this as None so we only do this once
 
+    @profile
     def setup(self):
         super().setup()
 
@@ -138,6 +146,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             return self._n_uv
 
+    @profile
     def reduce_data(self, ctx):
         """
         Simulate datasets to which this very class instance should be compared.
@@ -208,6 +217,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return [{"mean": mean, "covariance": covariance}]
 
+    @profile
     def computeLikelihood(self, model):
         "Compute the likelihood"
         # remember that model is *exactly* the result of reduce_data(), which is a  *list* of dicts, so unpack
@@ -301,6 +311,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             return self.grid_weights * signal_power
 
+    @profile
     def numerical_covariance(self, params={}, nrealisations=200, nthreads=1):
         """
         Calculate the covariance of the foregrounds.
@@ -434,6 +445,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return cov
 
+    @profile
     def compute_power(self, visibilities):
         """
         Compute the 2D power spectrum within the current context.
@@ -518,6 +530,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return PS
 
+    @profile
     def fourierBeam(self, centres, u_bl, v_bl, frequency, min_attenuation = 1e-10, N = 20):
         """
         Find the Fourier Transform of the Gaussian beam
@@ -559,6 +572,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         return beam, indx_u, indx_v
 
     @staticmethod
+    @profile
     def grid_visibilities_parallel(n_uv,visgrid_buff_real,visgrid_buff_imag,weights_buff, visibilities,frequencies,baselines,centres,sigfreq, min_attenuation = 1e-10,N = 120):
 
         logger.info("Gridding the visibilities")
@@ -609,6 +623,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     weights[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]])
 
 
+    @profile
     def grid_visibilities(self, visibilities,min_attenuation = 1e-10, N = 120):
         """
         Grid a set of visibilities from baselines onto a UV grid.
@@ -876,6 +891,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         return eta[eta > self.eta_min]
 
     @cached_property
+    @profile
     def grid_weights(self):
         """The number of uv cells that go into a single u annulus (unrelated to baseline weights)"""
         return angular_average_nd(
@@ -946,7 +962,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         return cosmo.comoving_distance(z) / (1 * un.sr)
 
-
+@profile
 def _produce_mock(self, params, i):
     """Produces a mock power spectrum for purposes of getting numerical_covariances"""
     # Create an empty context with the given parameters.

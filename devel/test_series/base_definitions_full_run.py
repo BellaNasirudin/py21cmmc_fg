@@ -19,33 +19,59 @@ from py21cmmc_fg.core import CoreInstrumental
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
 
 DEBUG = int(os.environ.get("DEBUG", 0))
-
-if DEBUG > 2 or DEBUG < 0:
+    
+if DEBUG > 3 or DEBUG < 0:
     raise ValueError("DEBUG should be 0,1,2")
 
+if DEBUG==3:
+    import tracemalloc
+    tracemalloc.start()
+    snapshot = tracemalloc.take_snapshot()
+
+    def trace_print():
+        global snapshot
+        snapshot2 = tracemalloc.take_snapshot()
+        snapshot2 = snapshot2.filter_traces((
+            tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
+            tracemalloc.Filter(False, "<unknown>"),
+            tracemalloc.Filter(False, tracemalloc.__file__)
+        ))
+
+        if snapshot is not None:
+            print("================================== Begin Trace:")
+            top_stats = snapshot2.compare_to(snapshot, 'lineno', cumulative=True)
+            for stat in top_stats[:10]:
+                print(stat)
+        snapshot = snapshot2
+
+    class CoreLightConeModule(CoreLightConeModule):
+        def build_model_data(self, ctx):
+            trace_print()
+            super().build_model_data(ctx)
+            
 # Use -c at the end to continue sampling instead of starting again.
 CONTINUE = "-c" in sys.argv
 
 logger = logging.getLogger("21CMMC")
 logger.setLevel([logging.DEBUG, logging.INFO, logging.WARNING][-DEBUG])
 
-if DEBUG:
+if DEBUG and DEBUG<3:
     logger.debug("Running in DEBUG=%s mode." % DEBUG)
+elif DEBUG==3:
+    logger.debug("Running in Memory Debug mode")
+    
 
 # ============== SET THESE VARIABLES.
 
-
 # ----- These should be kept the same between all tests. -------
 freq_min = 150.0
-freq_max = 180.0
-n_obs = 3
+bandwidth = 10.0
 u_min = 10
 z_step_factor = 1.04
 sky_size = 4.5  # in sigma
 max_tile_n = 50
 integration_time = 3600000  # 1000 hours of observation time
-tile_diameter = 4.0
-max_bl_length = 250 if DEBUG else 300
+max_bl_length = 150 if DEBUG else 300
 
 # MCMC OPTIONS
 params = dict(  # Parameter dict as described above.
@@ -55,8 +81,18 @@ params = dict(  # Parameter dict as described above.
     NU_X_THRESH =[500, 100, 1500, 50],
 )
 
+if DEBUG:
+    del params['L_X']
+    del params['NU_X_THRESH']
+
+astro_params = {k:v[0] for k,v in params.items()}
+
 # ----- Options that differ between DEBUG levels --------
-HII_DIM = [250, 125, 80][DEBUG]
+tile_diameter = 4.0 if DEBUG<3 else 12.0 # 
+n_obs = 3 if DEBUG < 2 else 1
+
+freq_max = freq_min + n_obs * bandwidth
+HII_DIM = [250, 125, 80, 80][DEBUG]
 DIM = 3 * HII_DIM
 BOX_LEN = 3 * HII_DIM
 
@@ -77,12 +113,20 @@ z_max = 1420. / freq_min - 1
 
 def _store_lightcone(ctx):
     """A storage function for lightcone slices"""
-    return 0#ctx.get("lightcone").brightness_temp[0]
+    return ctx.get("lightcone").brightness_temp[0]
 
 
 def _store_2dps(ctx):
     return 0
 
+if DEBUG==1:
+    store={
+        "lc_slices": _store_lightcone,
+        "2DPS": _store_2dps
+    }
+else:
+    store=None
+        
 core_eor = CoreLightConeModule(
     redshift=z_min,  # Lower redshift of the lightcone
     max_redshift=z_max,  # Approximate maximum redshift of the lightcone (will be exceeded).
@@ -91,19 +135,11 @@ core_eor = CoreLightConeModule(
         BOX_LEN=BOX_LEN,
         DIM=DIM
     ),
-    astro_params={
-        "HII_EFF_FACTOR":params["HII_EFF_FACTOR"][0],
-        "ION_Tvir_MIN":params["ION_Tvir_MIN"][0],
-        "L_X":params["L_X"][0],
-        "NU_X_THRESH":params["NU_X_THRESH"][0]
-    },
+    astro_params=astro_params,
     z_step_factor=z_step_factor,  # How large the steps between evaluated redshifts are (log).
     regenerate=False,
     keep_data_in_memory=DEBUG,
-    store={
-        "lc_slices": _store_lightcone,
-        "2DPS": _store_2dps
-    },
+    store=store,
     change_seed_every_iter=False,
     initial_conditions_seed=42
 )
@@ -114,32 +150,33 @@ class CustomCoreInstrument(CoreInstrumental):
                  sky_size=sky_size, n_cells=n_cells, tile_diameter=tile_diameter,
                  integration_time=integration_time,max_bl_length = max_bl_length,
                  **kwargs):
-        super().__init__(freq_max=freq_max, freq_min=freq_min,n_obs = n_obs,
+        super().__init__(freq_max=freq_max, freq_min=freq_min, n_obs = n_obs,
                          nfreq=nfreq, tile_diameter=tile_diameter, integration_time=integration_time,
                          sky_extent=sky_size, n_cells=n_cells, max_bl_length = max_bl_length,
                          **kwargs)
 
 
 class CustomLikelihood(LikelihoodInstrumental2D):
-    def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[700, 100, 2][DEBUG],
+    def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[700, 100, 2, 2][DEBUG],
+                 simulate=bool(DEBUG),
                  **kwargs):
         super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min= u_min, n_obs = n_obs,
-                         simulate=False, nthreads=[7, 3, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
+                         simulate=simulate, nthreads=[7, 3, 1, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
     def store(self, model, storage):
         """Store stuff"""
         storage['signal'] = model[0]['p_signal'] #+ self.noise['mean']
-        
+            
 def run_mcmc(*args, model_name, params=params, **kwargs):
     return _run_mcmc(
         *args,
         datadir='data',  # Directory for all outputs
         model_name=model_name,  # Filename of main chain output
         params=params,
-        walkersRatio=[6, 3, 2][DEBUG],  # The number of walkers will be walkersRatio*nparams
+        walkersRatio=[6, 3, 2, 2][DEBUG],  # The number of walkers will be walkersRatio*nparams
         burninIterations=0,  # Number of iterations to save as burnin. Recommended to leave as zero.
-        sampleIterations=[20, 50, 2][DEBUG],  # Number of iterations to sample, per walker.
-        threadCount=[3, 3, 1][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
+        sampleIterations=[20, 50, 2, 1][DEBUG],  # Number of iterations to sample, per walker.
+        threadCount=[3, 3, 1, 4][DEBUG],  # Number of processes to use in MCMC (best as a factor of walkersRatio)
         continue_sampling=CONTINUE,  # Whether to contine sampling from previous run *up to* sampleIterations.
         **kwargs
     )

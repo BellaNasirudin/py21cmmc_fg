@@ -1,4 +1,5 @@
-
+*~
+*.out
 \.idea/
 
 *.pyc
@@ -20,5 +21,6 @@ build/*
 devel/test_series/\.ipynb_checkpoints/
 
 tests/derpa\.npy
+mprofile_*
 
 devel/test_series/thermal_noise_data\.pkl

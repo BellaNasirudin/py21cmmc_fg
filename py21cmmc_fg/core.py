@@ -164,6 +164,7 @@ class ForegroundsBase(CoreBase):
         if len(fg) == 1:
             ctx.add("foregrounds", fg)
 
+    @profile
     def build_model_data(self, ctx):
         """
         This doesn't add anything to the context, rather it just updates the parameters of the class appropriately.
@@ -271,7 +272,9 @@ class CoreDiffuseForegrounds(ForegroundsBase):
                          model_params=dict(u0=u0, eta=eta, rho=rho, mean_temp=mean_temp, kappa=kappa),
                          **kwargs)
 
+
     @staticmethod
+    @profile
     def build_sky(frequencies, ncells, sky_size, u0=10.0, eta=0.01, rho=-2.7, mean_temp=253e3, kappa=-2.55):
         """
         This creates diffuse structure according to Eq. 55 from Trott+2016.
@@ -435,7 +438,7 @@ class CoreInstrumental(CoreBase):
                 ant_pos = np.genfromtxt(data_path, float)
             else:
                 ant_pos = np.genfromtxt(self.antenna_posfile, float)
-
+                
             # Find all the possible combination of tile displacement
             # baselines is a dim2 array of x and y displacements.
             self._baselines = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2]) * un.m
@@ -493,7 +496,7 @@ class CoreInstrumental(CoreBase):
         """
         return cosmo.comoving_transverse_distance(redshift).value
 
-
+    @profile
     def prepare_sky_lightcone(self, box):
         """
         Transform the raw brightness temperature of a simulated lightcone into the box structure required in this class.
@@ -542,6 +545,7 @@ class CoreInstrumental(CoreBase):
         vis = self.add_thermal_noise(vis)
         ctx.add("visibilities", vis)
 
+    @profile
     def build_model_data(self, ctx):
         """
         Generate a set of realistic visibilities (i.e. the output we expect from an interferometer).
@@ -737,8 +741,9 @@ class CoreInstrumental(CoreBase):
 
         return flux_density.value
 
-    @profile
+
     @staticmethod
+    @profile
     def image_to_uv(sky, L):
         """
         Transform a box from image plan to UV plane.
@@ -763,6 +768,7 @@ class CoreInstrumental(CoreBase):
         ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
         return ft, uv_scale
 
+    @profile
     def sample_onto_baselines_parallel(self, uvplane, uv, baselines, frequencies):
 
         #Find out the number of frequencies to process per thread
@@ -820,9 +826,8 @@ class CoreInstrumental(CoreBase):
 
         return vis
 
-
-    @profile
     @staticmethod
+    @profile
     def sample_onto_baselines(ncells,nfreqall, nfreqoffset,uvplane, uv, baselines, frequencies, vis_buff_real, vis_buff_imag):
         """
         Sample a gridded UV sky onto a set of baselines.
@@ -875,7 +880,6 @@ class CoreInstrumental(CoreBase):
             vis_imag[:, i] =  FT_imag
 
 
-    @profile
     @staticmethod
     def get_baselines(x, y):
         """
@@ -915,7 +919,6 @@ class CoreInstrumental(CoreBase):
 
         return (sigma ** 2).value
 
-    @profile
     def add_thermal_noise(self, visibilities):
         """
         Add thermal noise to each visibility.
@@ -960,6 +963,7 @@ class CoreInstrumental(CoreBase):
         return sim
 
     @staticmethod
+    @profile
     def interpolate_frequencies(data, freqs, linFreqs, uv_range=100):
 
         if (freqs[0] > freqs[-1]):
