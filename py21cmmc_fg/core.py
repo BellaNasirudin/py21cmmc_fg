@@ -611,21 +611,20 @@ class CoreInstrumental(CoreBase):
     def add_instrument(self, lightcone):
         # Find beam attenuation
         if self.add_beam is True:
-            attenuation = self.beam(self.instrumental_frequencies)
-            lightcone *= attenuation
+            lightcone *= self.beam(self.instrumental_frequencies)
         
         if self.padding_size is not None:
             lightcone = self.padding_image(lightcone, self.sky_size, self.padding_size * self.sky_size)
-            uvplane, uv = self.image_to_uv(lightcone, self.padding_size * self.sky_size)
+            lightcone, uv = self.image_to_uv(lightcone, self.padding_size * self.sky_size)
         else:
             # Fourier transform image plane to UV plane.
-            uvplane, uv = self.image_to_uv(lightcone, self.sky_size)
+            lightcone, uv = self.image_to_uv(lightcone, self.sky_size)
         
         # Fourier Transform over the (u,v) dimension and baselines sampling
         if self.antenna_posfile != "grid_centres":
-            visibilities = self.sample_onto_baselines_parallel(uvplane, uv, self.baselines, self.instrumental_frequencies)
+            visibilities = self.sample_onto_baselines_parallel(lightcone, uv, self.baselines, self.instrumental_frequencies)
         else:
-            visibilities = uvplane
+            visibilities = lightcone
             self.baselines = uv[1]
 
         return visibilities
