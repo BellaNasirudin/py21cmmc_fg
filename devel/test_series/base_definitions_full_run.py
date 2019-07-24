@@ -50,8 +50,8 @@ max_bl_length = 250 if DEBUG else 300
 # MCMC OPTIONS
 params = dict(  # Parameter dict as described above.
     HII_EFF_FACTOR=[20.0, 10.0, 250.0, 3.0],
-    ION_Tvir_MIN=[3.0, 1, 100, 1.0],
-    L_X = [40.5, 38, 42, 2.0],
+    ION_Tvir_MIN=[4.48, 4.0, 6.0, 1.0],
+    L_X = [40.5, 38, 42, 0.5],
     NU_X_THRESH =[500, 100, 1500, 50],
 )
 
