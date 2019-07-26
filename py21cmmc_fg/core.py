@@ -622,7 +622,10 @@ class CoreInstrumental(CoreBase):
         
         # Fourier Transform over the (u,v) dimension and baselines sampling
         if self.antenna_posfile != "grid_centres":
-            visibilities = self.sample_onto_baselines_parallel(lightcone, uv, self.baselines, self.instrumental_frequencies)
+            if(self.n_obs==1):
+                visibilities = self.sample_onto_baselines(lightcone, uv, self.baselines, self.instrumental_frequencies)
+            else:
+                visibilities = self.sample_onto_baselines_parallel(lightcone, uv, self.baselines, self.instrumental_frequencies)
         else:
             visibilities = lightcone
             self.baselines = uv[1]
@@ -762,67 +765,55 @@ class CoreInstrumental(CoreBase):
         ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
         return ft, uv_scale
 
-    def sample_onto_baselines_parallel(self, uvplane, uv, baselines, frequencies):
+    @profile
+    @staticmethod
+    def sample_onto_baselines(uvplane, uv, baselines, frequencies):
+        """
+        Sample a gridded UV sky onto a set of baselines.
+        Sampling is done via linear interpolation over the regular grid.
+        Parameters
+        ----------
+        uvplane : (ncells, ncells, nfreq)-array
+            The gridded UV sky, in Jy.
+        uv : list of two 1D arrays
+            The u and v coordinates of the uvplane respectively.
+        baselines : (N,2)-array
+            Each row should be the (x,y) co-ordinates of a baseline, in metres.
+        frequencies : 1D array
+            The frequencies of the uvplane.
+        Returns
+        -------
+        vis : complex (N, nfreq)-array
+             The visibilities defined at each baseline.
+        """
 
-        #Find out the number of frequencies to process per thread
-        nfreq = len(frequencies)
-        ncells = uvplane.shape[0]
-        numperthread = int(np.ceil(nfreq/self.n_obs))
-        offset = 0
-        nfreqstart = np.zeros(self.n_obs,dtype=int)
-        nfreqend = np.zeros(self.n_obs,dtype=int)
-        infreq = np.zeros(self.n_obs,dtype=int)
-        for i in range(self.n_obs):
-            nfreqstart[i] = offset
-            nfreqend[i] = offset + numperthread
+        frequencies = frequencies / un.s
+        vis = np.zeros((len(baselines), len(frequencies)), dtype=np.complex128)
 
-            if(i==self.n_obs-1):
-                infreq[i] = nfreq - offset
-            else:
-                infreq[i] = numperthread
+        logger.info("Sampling the data onto baselines...")
 
-            offset+=numperthread
+        for i, ff in enumerate(frequencies):
+            lamb = const.c / ff.to(1 / un.s)
+            arr = np.zeros(np.shape(baselines))
+            arr[:, 0] = (baselines[:, 0] / lamb).value
+            arr[:, 1] = (baselines[:, 1] / lamb).value
 
-        # Set the last process to the number of frequencies
-        nfreqend[-1] = nfreq
-        processes = []
-        vis_real = []
-        vis_imag = []
+            real = np.real(uvplane[:, :, i])
+            imag = np.imag(uvplane[:, :, i])
 
-        vis = np.zeros([baselines.shape[0],nfreq],dtype=np.complex128)
+            f_real = RectBivariateSpline(uv[0], uv[1], real)
+            f_imag = RectBivariateSpline(uv[0], uv[1], imag)
 
-        #Lets split this array up into chunks
-        for i in range(self.n_obs):
+            FT_real = f_real(arr[:, 0], arr[:, 1], grid=False)
+            FT_imag = f_imag(arr[:, 0], arr[:, 1], grid=False)
 
-            #Get the buffer that contains the memory
-            vis_buff_real = mp.RawArray(np.sctype2char(vis.real),vis[:,nfreqstart[i]:nfreqend[i]].size)
-            vis_buff_imag = mp.RawArray(np.sctype2char(vis.real),vis[:,nfreqstart[i]:nfreqend[i]].size)
-            vis_tmp_real = np.frombuffer(vis_buff_real)
-            vis_tmp_imag = np.frombuffer(vis_buff_imag)
-            vis_tmp_real = vis[:,nfreqstart[i]:nfreqend[i]].real.flatten()
-            vis_tmp_imag = vis[:,nfreqstart[i]:nfreqend[i]].imag.flatten()
-
-            vis_real.append(vis_buff_real)
-            vis_imag.append(vis_buff_imag)
-
-            processes.append(mp.Process(target=self.sample_onto_baselines,args=(ncells,nfreq,nfreqstart[i],uvplane, uv, baselines, frequencies[nfreqstart[i]:nfreqend[i]], vis_buff_real,vis_buff_imag) ))
-
-        for p in processes:
-            p.start()
-
-        for p in processes:
-            p.join()
-
-        for i in range(self.n_obs):
-            vis.real[:,nfreqstart[i]:nfreqend[i]] = np.frombuffer(vis_real[i]).reshape(baselines.shape[0],nfreqend[i] - nfreqstart[i])
-            vis.imag[:,nfreqstart[i]:nfreqend[i]] = np.frombuffer(vis_imag[i]).reshape(baselines.shape[0],nfreqend[i] - nfreqstart[i])
+            vis[:, i] = FT_real + FT_imag * 1j
 
         return vis
 
-
     @profile
     @staticmethod
-    def sample_onto_baselines(ncells,nfreqall, nfreqoffset,uvplane, uv, baselines, frequencies, vis_buff_real, vis_buff_imag):
+    def _sample_onto_baselines_buff(ncells,nfreqall, nfreqoffset,uvplane, uv, baselines, frequencies, vis_buff_real, vis_buff_imag):
         """
         Sample a gridded UV sky onto a set of baselines.
 
@@ -873,6 +864,63 @@ class CoreInstrumental(CoreBase):
             vis_real[:, i] = FT_real
             vis_imag[:, i] =  FT_imag
 
+
+    def sample_onto_baselines_parallel(self, uvplane, uv, baselines, frequencies):
+
+        #Find out the number of frequencies to process per thread
+        nfreq = len(frequencies)
+        ncells = uvplane.shape[0]
+        numperthread = int(np.ceil(nfreq/self.n_obs))
+        offset = 0
+        nfreqstart = np.zeros(self.n_obs,dtype=int)
+        nfreqend = np.zeros(self.n_obs,dtype=int)
+        infreq = np.zeros(self.n_obs,dtype=int)
+        for i in range(self.n_obs):
+            nfreqstart[i] = offset
+            nfreqend[i] = offset + numperthread
+
+            if(i==self.n_obs-1):
+                infreq[i] = nfreq - offset
+            else:
+                infreq[i] = numperthread
+
+            offset+=numperthread
+
+        # Set the last process to the number of frequencies
+        nfreqend[-1] = nfreq
+        processes = []
+        vis_real = []
+        vis_imag = []
+
+        vis = np.zeros([baselines.shape[0],nfreq],dtype=np.complex128)
+
+        #Lets split this array up into chunks
+        for i in range(self.n_obs):
+
+            #Get the buffer that contains the memory
+            vis_buff_real = mp.RawArray(np.sctype2char(vis.real),vis[:,nfreqstart[i]:nfreqend[i]].size)
+            vis_buff_imag = mp.RawArray(np.sctype2char(vis.real),vis[:,nfreqstart[i]:nfreqend[i]].size)
+            vis_tmp_real = np.frombuffer(vis_buff_real)
+            vis_tmp_imag = np.frombuffer(vis_buff_imag)
+            vis_tmp_real = vis[:,nfreqstart[i]:nfreqend[i]].real.flatten()
+            vis_tmp_imag = vis[:,nfreqstart[i]:nfreqend[i]].imag.flatten()
+
+            vis_real.append(vis_buff_real)
+            vis_imag.append(vis_buff_imag)
+
+            processes.append(mp.Process(target=self._sample_onto_baselines_buff,args=(ncells,nfreq,nfreqstart[i],uvplane, uv, baselines, frequencies[nfreqstart[i]:nfreqend[i]], vis_buff_real,vis_buff_imag) ))
+
+        for p in processes:
+            p.start()
+
+        for p in processes:
+            p.join()
+
+        for i in range(self.n_obs):
+            vis.real[:,nfreqstart[i]:nfreqend[i]] = np.frombuffer(vis_real[i]).reshape(baselines.shape[0],nfreqend[i] - nfreqstart[i])
+            vis.imag[:,nfreqstart[i]:nfreqend[i]] = np.frombuffer(vis_imag[i]).reshape(baselines.shape[0],nfreqend[i] - nfreqstart[i])
+
+        return vis
 
     @profile
     @staticmethod
