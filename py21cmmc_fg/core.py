@@ -250,11 +250,11 @@ class CorePointSourceForegrounds(ForegroundsBase):
 
         # Grid the fluxes at reference frequency, f0
         sky = np.bincount(pos, weights=S_0, minlength=self.n_cells ** 2)
-
+        sky = np.ones(self.n_cells ** 2)
+        
         # Find the fluxes at different frequencies based on spectral index
-        sky = np.outer(sky, (self.frequencies / f0) ** (-gamma)).reshape(
-            (self.n_cells, self.n_cells, len(self.frequencies)))
-
+        sky = np.outer(sky, (self.frequencies / f0) ** (-gamma)).reshape((self.n_cells, self.n_cells, len(self.frequencies)))
+        
         # Divide by cell area to get in Jy/sr (proportional to K)
         sky /= self.cell_area
 
@@ -599,7 +599,7 @@ class CoreInstrumental(CoreBase):
             The sky padded with zeros along the l,m plane.
         """
         sky = []
-        N_pad = int((big_sky_size - sky_size)/2 * np.shape(image_cube)[0])
+        N_pad = int((big_sky_size - sky_size)/4 * np.shape(image_cube)[0])
         for jj in range(np.shape(image_cube)[-1]):
             sky.append(np.pad(image_cube[:,:,jj], N_pad, self.pad_with))
 
@@ -609,6 +609,7 @@ class CoreInstrumental(CoreBase):
 
     @profile
     def add_instrument(self, lightcone):
+
         # Find beam attenuation
         if self.add_beam is True:
             lightcone *= self.beam(self.instrumental_frequencies)
@@ -762,7 +763,9 @@ class CoreInstrumental(CoreBase):
             The u and v co-ordinates of the uvsky, respectively. Units are inverse of L.
         """
         logger.info("Converting to UV space...")
+
         ft, uv_scale = fft(sky, L, axes=(0, 1), a=0, b=2 * np.pi)
+        
         return ft, uv_scale
 
     @profile
