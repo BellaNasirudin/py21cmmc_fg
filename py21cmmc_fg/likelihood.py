@@ -187,7 +187,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 mean, covariance = self.numerical_covariance(
                     nrealisations=self.nrealisations, nthreads=self._nthreads
                 )
-            else:
+            elif self.nrealisations!=0:
                 # Still getting mean numerically for now...
                 mean = self.numerical_covariance(nrealisations=self.nrealisations, nthreads=self._nthreads)[0]
 
@@ -197,6 +197,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
                 thermal_covariance = self.get_thermal_covariance()
                 covariance = [x + y for x, y in zip(covariance, thermal_covariance)]
+            elif self.nrealisations==0:
+                mean =0
+                covariance =0
 
         else:
             # Only need thermal variance if we don't have foregrounds, otherwise it will be embedded in the
@@ -460,7 +463,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 visgrid,kernel_weights = self.grid_visibilities_parallel(visibilities)
         else:
             visgrid = visibilities
-            
+          
         # Transform frequency axis
         visgrid = self.frequency_fft(visgrid, self.frequencies, self.ps_dim, taper=signal.blackmanharris, n_obs = self.n_obs)#self.frequency_taper)
 
@@ -521,7 +524,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         return PS
 
-    def fourierBeam(self, centres, u_bl, v_bl, frequency, min_attenuation = 1e-10, N = 20):
+    @staticmethod
+    def fourierBeam(centres, u_bl, v_bl, frequency, a, min_attenuation = 1e-10, N = 20):
         """
         Find the Fourier Transform of the Gaussian beam
         
@@ -539,8 +543,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         frequency: float
             The frequency in Hz.
         """
-    
-        a = 1/ (2 * self._instr_core.sigma(frequency)**2)
         
         indx_u = np.digitize(u_bl, centres)
         indx_v = np.digitize(v_bl, centres)
@@ -549,7 +551,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         
         for jj in range(len(u_bl)):
             x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)],copy=False)
-            B = (np.exp(- ((x - u_bl[jj])**2 + (y - v_bl[jj])**2 )/ a)).T
+            B = (np.exp(- (np.pi**2 *(x - u_bl[jj])**2 + (y - v_bl[jj])**2 )/ a)).T
             B[B<min_attenuation] = 0
             beam.append(B)
         
@@ -597,12 +599,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             u_bl = (self.baselines[:,0] * freq / const.c).value
             v_bl = (self.baselines[:,1] * freq / const.c).value
 
-            beam, indx_u, indx_v = self.fourierBeam(centres, u_bl, v_bl, freq, N=N)
+            beam, indx_u, indx_v = fourierBeam(centres, u_bl, v_bl, freq, 1/ (2 * self._instr_core.sigma(freq)**2), N=N)
             for kk in range(len(indx_u)):
-                visgrid[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,jj]
+                
+                if np.sum(beam[kk])!=0:
+                    visgrid[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,jj]
 
-                if kernel_weights is None:
-                    weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk])
+                    if kernel_weights is None:
+                        weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk])
 
         if kernel_weights is None:
             kernel_weights = weights
@@ -612,7 +616,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         return visgrid,kernel_weights
 
     @staticmethod
-    def _grid_visibilities_buff(n_uv,visgrid_buff_real,visgrid_buff_imag,weights_buff, visibilities,frequencies,baselines,centres,sigfreq, min_attenuation = 1e-10,N = 120):
+    def _grid_visibilities_buff(n_uv,visgrid_buff_real,visgrid_buff_imag,weights_buff, visibilities,frequencies,a,baselines,centres,sigfreq, min_attenuation = 1e-10,N = 120):
 
         logger.info("Gridding the visibilities")
 
@@ -631,36 +635,49 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             u_bl = (baselines[:,0] * freq / const.c).value
             v_bl = (baselines[:,1] * freq / const.c).value
 
-            a = 1/ (2 * sigfreq[ii]**2)
+            # a = 1/ (2 * sigfreq[ii]**2)
 
-            indx_u = np.digitize(u_bl, centres)
-            indx_v = np.digitize(v_bl, centres)
+            # indx_u = np.digitize(u_bl, centres)
+            # indx_v = np.digitize(v_bl, centres)
 
-            beam = np.zeros([len(u_bl),N,N])
-            xshape = np.zeros(len(u_bl),dtype=int)
-            yshape = np.zeros(len(u_bl),dtype=int)
+            # beam = np.zeros([len(u_bl),N,N])
+            # xshape = np.zeros(len(u_bl),dtype=int)
+            # yshape = np.zeros(len(u_bl),dtype=int)
 
-            for jj in range(len(u_bl)):
-                x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)],copy=False)
-                B = (np.exp(- ((x - u_bl[jj])**2 + (y - v_bl[jj])**2 )/ a)).T
-                B[B<min_attenuation] = 0
-                xshape[jj] = B.shape[0]
-                yshape[jj] = B.shape[1]
-                beam[jj][:xshape[jj],:yshape[jj]] = B
+            # for jj in range(len(u_bl)):
+            #     x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)],copy=False)
+            #     B = (np.exp(- ((x - u_bl[jj])**2 + (y - v_bl[jj])**2 )/ a)).T
+            #     B[B<min_attenuation] = 0
+            #     xshape[jj] = B.shape[0]
+            #     yshape[jj] = B.shape[1]
+            #     beam[jj][:xshape[jj],:yshape[jj]] = B
 
-            indx_u+= -int(N/2)
-            indx_v+= -int(N/2)
+            # indx_u+= -int(N/2)
+            # indx_v+= -int(N/2)
 
-            indx_u[indx_u<0] = 0
-            indx_v[indx_v<0] = 0
+            # indx_u[indx_u<0] = 0
+            # indx_v[indx_v<0] = 0
 
+            # for kk in range(len(indx_u)):
+            #     if np.sum(beam[kk][:xshape[kk],:yshape[kk]])!=0:
+            #         vis_real[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]]) * visibilities[kk,ii].real
+            #         vis_imag[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]]) * visibilities[kk,ii].imag
+    
+            #         if(np.any(np.isnan(vis_imag[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii]))):
+            #             print(visibilities[kk,ii].imag,beam[kk][:xshape[kk],:yshape[kk]])
+
+            #         if weights_buff is not None:
+            #             weights[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]])
+
+            beam, indx_u, indx_v = LikelihoodInstrumental2D.fourierBeam(centres, u_bl, v_bl, freq,a[ii], N=N)
             for kk in range(len(indx_u)):
-                vis_real[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]]) * visibilities[kk,ii].real
-                vis_imag[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]]) * visibilities[kk,ii].imag
+                
+                if np.sum(beam[kk])!=0:
+                    vis_real[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], ii] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,ii].real
+                    vis_imag[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], ii] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,ii].imag
 
-                if weights_buff is not None:
-                    weights[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]])
-
+                    if weights_buff is None:
+                        weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], ii] += beam[kk] / np.sum(beam[kk])
 
     def grid_visibilities_parallel(self, visibilities,min_attenuation = 1e-10, N = 120):
         """
@@ -739,7 +756,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             else:
                 weights_buff.append(None)
 
-            processes.append(multiprocessing.Process(target=self._grid_visibilities_buff,args=(self.n_uv,visgrid_buff_real[i],visgrid_buff_imag[i],weights_buff[i], visibilities[:,nfreqstart[i]:nfreqend[i]],self.frequencies[nfreqstart[i]:nfreqend[i]],self.baselines,centres,self._instr_core.sigma(self.frequencies[nfreqstart[i]:nfreqend[i]]),min_attenuation, N) ))
+            processes.append(multiprocessing.Process(target=self._grid_visibilities_buff,args=(self.n_uv,visgrid_buff_real[i],visgrid_buff_imag[i],
+                weights_buff[i], visibilities[:,nfreqstart[i]:nfreqend[i]],self.frequencies[nfreqstart[i]:nfreqend[i]],
+                1/ (2 * self._instr_core.sigma(self.frequencies[nfreqstart[i]:nfreqend[i]])**2),self.baselines,centres,
+                self._instr_core.sigma(self.frequencies[nfreqstart[i]:nfreqend[i]]),min_attenuation, N) ))
 
         for p in processes:
             p.start()
