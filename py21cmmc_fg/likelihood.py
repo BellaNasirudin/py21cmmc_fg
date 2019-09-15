@@ -599,7 +599,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             u_bl = (self.baselines[:,0] * freq / const.c).value
             v_bl = (self.baselines[:,1] * freq / const.c).value
 
-            beam, indx_u, indx_v = fourierBeam(centres, u_bl, v_bl, freq, 1/ (2 * self._instr_core.sigma(freq)**2), N=N)
+            beam, indx_u, indx_v = self.fourierBeam(centres, u_bl, v_bl, freq, 1/ (2 * self._instr_core.sigma(freq)**2), N=N)
             for kk in range(len(indx_u)):
                 
                 if np.sum(beam[kk])!=0:
