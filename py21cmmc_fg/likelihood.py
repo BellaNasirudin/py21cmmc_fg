@@ -43,7 +43,7 @@ logger = logging.getLogger("21CMMC")
 class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
 
-    def __init__(self, n_uv=1000, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman, n_obs=1,
+    def __init__(self, n_uv=1000, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman, n_obs=1, nparallel = 1,
                  nrealisations=100, nthreads=1, model_uncertainty=0.15, eta_min=0, use_analytical_noise=False, ps_dim=2,
                  **kwargs):
         """
@@ -113,6 +113,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         self._nthreads = nthreads
         self.ps_dim = ps_dim
         self.n_obs = n_obs
+        self.nparallel = nparallel
 
         self.use_analytical_noise = use_analytical_noise
         
@@ -457,7 +458,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Grid visibilities only if we're not using "grid_centres"
 
         if self.baselines_type != "grid_centres":
-            if(self.n_obs==1):
+            if(self.nparallel==1):
                 visgrid,kernel_weights = self.grid_visibilities(visibilities)
             else:
                 visgrid,kernel_weights = self.grid_visibilities_parallel(visibilities)
@@ -472,7 +473,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         if(os.path.exists(self.datafile[0][:-4]+".kernel_weights.npy")==False):
             np.save(self.datafile[0][:-4]+".kernel_weights.npy",kernel_weights)
-        
+
         return power2d
 
     def get_power(self, gridded_vis, kernel_weights, ps_dim=2):
@@ -551,7 +552,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         
         for jj in range(len(u_bl)):
             x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)],copy=False)
-            B = (np.exp(- (np.pi**2 *(x - u_bl[jj])**2 + (y - v_bl[jj])**2 )/ a)).T
+            B = (np.exp(- (np.pi**2 *((x - u_bl[jj])**2 + (y - v_bl[jj])**2 ))/ a)).T
             B[B<min_attenuation] = 0
             beam.append(B)
         
@@ -592,6 +593,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         else:
             kernel_weights=None
 
+        if(np.any(visgrid.shape!=kernel_weights.shape)):
+            kernel_weights=None
+
         if kernel_weights is None:
             weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
 
@@ -624,9 +628,12 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         vis_real = np.frombuffer(visgrid_buff_real).reshape(n_uv,n_uv,nfreq)
         vis_imag = np.frombuffer(visgrid_buff_imag).reshape(n_uv,n_uv,nfreq)
+        vis_real[:] = 0
+        vis_imag[:] = 0
 
         if(weights_buff is not None):
             weights = np.frombuffer(weights_buff).reshape(n_uv,n_uv,nfreq)
+            weights[:] = 0
 
         for ii in range(nfreq):
 
@@ -676,7 +683,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     vis_real[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], ii] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,ii].real
                     vis_imag[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], ii] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,ii].imag
 
-                    if weights_buff is None:
+                    if weights_buff is not None:
                         weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], ii] += beam[kk] / np.sum(beam[kk])
 
     def grid_visibilities_parallel(self, visibilities,min_attenuation = 1e-10, N = 120):
@@ -698,16 +705,16 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         #Find out the number of frequencies to process per thread
         nfreq = len(self.frequencies)
-        numperthread = int(np.ceil(nfreq/self.n_obs))
+        numperthread = int(np.ceil(nfreq/self.nparallel))
         offset = 0
-        nfreqstart = np.zeros(self.n_obs,dtype=int)
-        nfreqend = np.zeros(self.n_obs,dtype=int)
-        infreq = np.zeros(self.n_obs,dtype=int)
-        for i in range(self.n_obs):
+        nfreqstart = np.zeros(self.nparallel,dtype=int)
+        nfreqend = np.zeros(self.nparallel,dtype=int)
+        infreq = np.zeros(self.nparallel,dtype=int)
+        for i in range(self.nparallel):
             nfreqstart[i] = offset
             nfreqend[i] = offset + numperthread
 
-            if(i==self.n_obs-1):
+            if(i==self.nparallel-1):
                 infreq[i] = nfreq - offset
             else:
                 infreq[i] = numperthread
@@ -730,7 +737,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             kernel_weights = np.load(self.datafile[0][:-4]+".kernel_weights.npy")
         else:
             kernel_weights=None
-        
+
+        if(np.any(visgrid.shape!=kernel_weights.shape)):
+            kernel_weights=None
+
         if kernel_weights is None:
             weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
 
@@ -739,20 +749,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         weights_buff = []
 
         #Lets split this array up into chunks
-        for i in range(self.n_obs):
+        for i in range(self.nparallel):
 
             visgrid_buff_real.append(multiprocessing.RawArray(np.sctype2char(visgrid.real),visgrid[:,:,nfreqstart[i]:nfreqend[i]].size))
             visgrid_buff_imag.append(multiprocessing.RawArray(np.sctype2char(visgrid.imag),visgrid[:,:,nfreqstart[i]:nfreqend[i]].size))
-            visgrid_tmp_real = np.frombuffer(visgrid_buff_real[i])
-            visgrid_tmp_imag = np.frombuffer(visgrid_buff_imag[i])
-            visgrid_tmp_real = visgrid[:,:,nfreqstart[i]:nfreqend[i]].real.flatten()
-            visgrid_tmp_imag = visgrid[:,:,nfreqstart[i]:nfreqend[i]].imag.flatten()
-
 
             if(kernel_weights is None):
                 weights_buff.append(multiprocessing.RawArray(np.sctype2char(weights),weights[:,:,nfreqstart[i]:nfreqend[i]].size))
-                weights_tmp = np.frombuffer(weights_buff[i])
-                weights_tmp = weights[:,:,nfreqstart[i]:nfreqend[i]]
             else:
                 weights_buff.append(None)
 
@@ -767,7 +770,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         for p in processes:
             p.join()
 
-        for i in range(self.n_obs):
+        for i in range(self.nparallel):
 
             visgrid[:,:,nfreqstart[i]:nfreqend[i]].real = np.frombuffer(visgrid_buff_real[i]).reshape(self.n_uv,self.n_uv,nfreqend[i]-nfreqstart[i])
             visgrid[:,:,nfreqstart[i]:nfreqend[i]].imag = np.frombuffer(visgrid_buff_imag[i]).reshape(self.n_uv,self.n_uv,nfreqend[i]-nfreqstart[i])

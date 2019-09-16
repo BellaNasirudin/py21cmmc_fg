@@ -250,7 +250,6 @@ class CorePointSourceForegrounds(ForegroundsBase):
 
         # Grid the fluxes at reference frequency, f0
         sky = np.bincount(pos, weights=S_0, minlength=self.n_cells ** 2)
-        sky = np.ones(self.n_cells ** 2)
         
         # Find the fluxes at different frequencies based on spectral index
         sky = np.outer(sky, (self.frequencies / f0) ** (-gamma)).reshape((self.n_cells, self.n_cells, len(self.frequencies)))
@@ -337,7 +336,7 @@ class CoreInstrumental(CoreBase):
     """
 
     def __init__(self, *, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
-                 integration_time=120, Tsys=240, effective_collecting_area=21.0, n_obs = 1,
+                 integration_time=120, Tsys=240, effective_collecting_area=21.0, n_obs = 1, nparallel = 1,
                  sky_extent=3, n_cells=300, add_beam=True, padding_size = 3,
                  **kwargs):
         """
@@ -412,6 +411,7 @@ class CoreInstrumental(CoreBase):
         self.add_beam = add_beam
         self.padding_size = padding_size
         self.n_obs = n_obs
+        self.nparallel = nparallel
 
         self.effective_collecting_area = effective_collecting_area * un.m ** 2
 
@@ -462,7 +462,7 @@ class CoreInstrumental(CoreBase):
     @property
     def sky_size(self):
         "The sky size in lm co-ordinates. This is the size *all the way across*"
-        return 2 #* self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
+        return self._sky_extent #* self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
 
     @cached_property
     def sky_coords(self):
@@ -599,7 +599,7 @@ class CoreInstrumental(CoreBase):
             The sky padded with zeros along the l,m plane.
         """
         sky = []
-        N_pad = int((big_sky_size - sky_size)/4 * np.shape(image_cube)[0])
+        N_pad = int((big_sky_size - sky_size)/(2.0 * sky_size) * np.shape(image_cube)[0])
         for jj in range(np.shape(image_cube)[-1]):
             sky.append(np.pad(image_cube[:,:,jj], N_pad, self.pad_with))
 
@@ -623,7 +623,7 @@ class CoreInstrumental(CoreBase):
         
         # Fourier Transform over the (u,v) dimension and baselines sampling
         if self.antenna_posfile != "grid_centres":
-            if(self.n_obs==1):
+            if(self.nparallel==1):
                 visibilities = self.sample_onto_baselines(lightcone, uv, self.baselines, self.instrumental_frequencies)
             else:
                 visibilities = self.sample_onto_baselines_parallel(lightcone, uv, self.baselines, self.instrumental_frequencies)
@@ -873,16 +873,16 @@ class CoreInstrumental(CoreBase):
         #Find out the number of frequencies to process per thread
         nfreq = len(frequencies)
         ncells = uvplane.shape[0]
-        numperthread = int(np.ceil(nfreq/self.n_obs))
+        numperthread = int(np.ceil(nfreq/self.nparallel))
         offset = 0
-        nfreqstart = np.zeros(self.n_obs,dtype=int)
-        nfreqend = np.zeros(self.n_obs,dtype=int)
-        infreq = np.zeros(self.n_obs,dtype=int)
-        for i in range(self.n_obs):
+        nfreqstart = np.zeros(self.nparallel,dtype=int)
+        nfreqend = np.zeros(self.nparallel,dtype=int)
+        infreq = np.zeros(self.nparallel,dtype=int)
+        for i in range(self.nparallel):
             nfreqstart[i] = offset
             nfreqend[i] = offset + numperthread
 
-            if(i==self.n_obs-1):
+            if(i==self.nparallel-1):
                 infreq[i] = nfreq - offset
             else:
                 infreq[i] = numperthread
@@ -898,15 +898,11 @@ class CoreInstrumental(CoreBase):
         vis = np.zeros([baselines.shape[0],nfreq],dtype=np.complex128)
 
         #Lets split this array up into chunks
-        for i in range(self.n_obs):
+        for i in range(self.nparallel):
 
             #Get the buffer that contains the memory
             vis_buff_real = mp.RawArray(np.sctype2char(vis.real),vis[:,nfreqstart[i]:nfreqend[i]].size)
             vis_buff_imag = mp.RawArray(np.sctype2char(vis.real),vis[:,nfreqstart[i]:nfreqend[i]].size)
-            vis_tmp_real = np.frombuffer(vis_buff_real)
-            vis_tmp_imag = np.frombuffer(vis_buff_imag)
-            vis_tmp_real = vis[:,nfreqstart[i]:nfreqend[i]].real.flatten()
-            vis_tmp_imag = vis[:,nfreqstart[i]:nfreqend[i]].imag.flatten()
 
             vis_real.append(vis_buff_real)
             vis_imag.append(vis_buff_imag)
@@ -919,7 +915,7 @@ class CoreInstrumental(CoreBase):
         for p in processes:
             p.join()
 
-        for i in range(self.n_obs):
+        for i in range(self.nparallel):
             vis.real[:,nfreqstart[i]:nfreqend[i]] = np.frombuffer(vis_real[i]).reshape(baselines.shape[0],nfreqend[i] - nfreqstart[i])
             vis.imag[:,nfreqstart[i]:nfreqend[i]] = np.frombuffer(vis_imag[i]).reshape(baselines.shape[0],nfreqend[i] - nfreqstart[i])
 
