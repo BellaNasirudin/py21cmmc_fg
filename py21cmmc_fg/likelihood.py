@@ -552,7 +552,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         
         for jj in range(len(u_bl)):
             x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)],copy=False)
-            B = (np.exp(- (np.pi**2 *((x - u_bl[jj])**2 + (y - v_bl[jj])**2 ))/ a)).T
+            B = ((np.sqrt(np.pi/a))* np.exp(- (np.pi**2 *((x - u_bl[jj])**2 + (y - v_bl[jj])**2 ))/ a)).T
             B[B<min_attenuation] = 0
             beam.append(B)
         
