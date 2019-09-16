@@ -10,7 +10,7 @@ from py21cmmc.mcmc import CoreLightConeModule, run_mcmc as _run_mcmc
 from py21cmmc_fg.core import CoreInstrumental  # , ForegroundsBase
 from py21cmmc_fg.likelihood import LikelihoodInstrumental2D
 
-DEBUG = int(os.environ.get("DEBUG", 0))
+DEBUG = int(os.environ.get("DEBUG", 2))
 
 if DEBUG > 2 or DEBUG < 0:
     raise ValueError("DEBUG should be 0,1,2")
@@ -29,11 +29,11 @@ if DEBUG:
 
 # ----- These should be kept the same between all tests. -------
 freq_min = 150.0
-freq_max = 160.0
+freq_max = 180.0
 z_step_factor = 1.04
-sky_size = 4.5  # in sigma
+sky_size = 2  # in radian
 max_tile_n = 50
-n_obs = 1
+n_obs = 3
 integration_time = 3600000  # 1000 hours of observation time
 tile_diameter = 4.0
 max_bl_length = 250 if DEBUG else 300
@@ -107,10 +107,10 @@ class CustomCoreInstrument(CoreInstrumental):
                          **kwargs)
 
 class CustomLikelihood(LikelihoodInstrumental2D):
-    def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[500, 100, 6][DEBUG],
+    def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[500, 100, 0][DEBUG],
                  **kwargs):
-        super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min=10, n_obs = n_obs,#frequency_taper=frequency_taper,
-                         simulate=True, nthreads=[10, 3, 3][DEBUG], nrealisations=nrealisations, ps_dim=2,
+        super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min=10, n_obs = n_obs, nparallel = 3,
+                         simulate=True, nthreads=[10, 3, 2][DEBUG], nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
 
     def store(self, model, storage):

@@ -37,11 +37,11 @@ if DEBUG:
 
 # ----- These should be kept the same between all tests. -------
 freq_min = 150.0
-freq_max = 180.0
-n_obs = 3
+freq_max = 160.0
+n_obs = 1
 u_min = 10
 z_step_factor = 1.04
-sky_size = 4.5  # in sigma
+sky_size = 2  # in radian
 max_tile_n = 50
 integration_time = 3600000  # 1000 hours of observation time
 tile_diameter = 4.0
@@ -114,7 +114,7 @@ class CustomCoreInstrument(CoreInstrumental):
                  sky_size=sky_size, n_cells=n_cells, tile_diameter=tile_diameter,
                  integration_time=integration_time,max_bl_length = max_bl_length,
                  **kwargs):
-        super().__init__(freq_max=freq_max, freq_min=freq_min,n_obs = n_obs,
+        super().__init__(freq_max=freq_max, freq_min=freq_min,n_obs = n_obs, nparallel = 3,
                          nfreq=nfreq, tile_diameter=tile_diameter, integration_time=integration_time,
                          sky_extent=sky_size, n_cells=n_cells, max_bl_length = max_bl_length,
                          **kwargs)
@@ -123,8 +123,8 @@ class CustomCoreInstrument(CoreInstrumental):
 class CustomLikelihood(LikelihoodInstrumental2D):
     def __init__(self, n_ubins=n_ubins, uv_max=None, nrealisations=[700, 100, 2][DEBUG],
                  **kwargs):
-        super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min= u_min, n_obs = n_obs,
-                         simulate=False, nthreads=[7, 3, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
+        super().__init__(n_ubins=n_ubins, uv_max=uv_max, u_min= u_min, n_obs = n_obs, nparallel = 3,
+                         simulate=True, nthreads=[7, 3, 1][DEBUG], nrealisations=nrealisations, ps_dim=2,
                          **kwargs)
     def store(self, model, storage):
         """Store stuff"""
