@@ -801,7 +801,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     def uv_max(self):
         if self._uv_max is None:
             if self.baselines_type != "grid_centres":
-                return (max([np.abs(b).max() for b in self.baselines]) * self.frequencies.min() / const.c).value
+                return (max([np.abs(b).max() for b in self.baselines]) * 150e6 / const.c).value
             else:
                 # return the uv
                 return self.baselines.max()
