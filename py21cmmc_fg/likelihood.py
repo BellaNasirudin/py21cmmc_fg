@@ -590,10 +590,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         if(os.path.exists(self.datafile[0][:-4]+".kernel_weights.npy")):
             kernel_weights = np.load(self.datafile[0][:-4]+".kernel_weights.npy")
+            
+            if(np.any(visgrid.shape!=kernel_weights.shape)):
+                kernel_weights=None
         else:
-            kernel_weights=None
-
-        if(np.any(visgrid.shape!=kernel_weights.shape)):
             kernel_weights=None
 
         if kernel_weights is None:
@@ -735,10 +735,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         if(os.path.exists(self.datafile[0][:-4]+".kernel_weights.npy")):
             kernel_weights = np.load(self.datafile[0][:-4]+".kernel_weights.npy")
+            
+            if(np.any(visgrid.shape!=kernel_weights.shape)):
+                kernel_weights=None
         else:
-            kernel_weights=None
-
-        if(np.any(visgrid.shape!=kernel_weights.shape)):
             kernel_weights=None
 
         if kernel_weights is None:
