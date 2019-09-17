@@ -156,7 +156,10 @@ class ForegroundsBase(CoreBase):
         """
         # build_model_data is called before this method, so we do not need to
         # update parameters. We just build the sky:
-        fg_lightcone = self.build_sky(**self.model_params)
+        if (self.model_params['S_min'] != self.model_params['S_max']):
+            fg_lightcone = self.build_sky(**self.model_params)
+        else:
+            fg_lightcone = np.zeros((self.n_cells, self.n_cells, len(self.frequencies)))
 
         # Get the foregrounds list out of the context, defaulting to empty list.
         fg = ctx.get("foregrounds", [])
@@ -561,7 +564,10 @@ class CoreInstrumental(CoreBase):
         for fg, cls in zip(foregrounds, self.foreground_cores):
             box += self.prepare_sky_foreground(fg, cls)
 
-        vis = self.add_instrument(box)
+        if (np.max(box)==np.min(box)): #both EoR signal and foregrounds are zero
+            vis = np.zeros((len(self.baselines), len(self.instrumental_frequencies)), dtype=np.complex128)
+        else:
+            vis = self.add_instrument(box)
 
         ctx.add("visibilities", vis)
         ctx.add("new_sky", box)
