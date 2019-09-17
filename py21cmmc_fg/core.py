@@ -685,7 +685,7 @@ class CoreInstrumental(CoreBase):
         sig = self.sigma(frequencies)
         return np.pi * sig ** 2
 
-    def beam(self, frequencies, min_attenuation = 1e-7):
+    def beam(self, frequencies, min_attenuation = 5e-7):
         """
         Generate a frequency-dependent Gaussian beam attenuation across the sky per frequency.
 
