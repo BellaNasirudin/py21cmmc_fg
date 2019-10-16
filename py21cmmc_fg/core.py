@@ -137,12 +137,12 @@ class ForegroundsBase(CoreBase):
         """(l,m) area of each sky cell"""
         return self.cell_size ** 2
 
-    @property
-    def sky_coords(self):
-        """
-        Co-ordinates of the left-edge of sky cells along a side.
-        """
-        return np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
+#    @property
+#    def sky_coords(self):
+#        """
+#        Co-ordinates of the left-edge of sky cells along a side.
+#        """
+#        return np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
 
     def convert_model_to_mock(self, ctx):
         """
@@ -467,10 +467,10 @@ class CoreInstrumental(CoreBase):
         "The sky size in lm co-ordinates. This is the size *all the way across*"
         return self._sky_extent #* self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
 
-    @cached_property
-    def sky_coords(self):
-        """Grid-coordinates of the (stitched/coarsened) simulation in lm units"""
-        return np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
+#    @cached_property
+#    def sky_coords(self):
+#        """Grid-coordinates of the (stitched/coarsened) simulation in lm units"""
+#        return np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
 
     @cached_property
     def cell_size(self):
@@ -557,6 +557,9 @@ class CoreInstrumental(CoreBase):
         if lightcone is not None:
             box += self.prepare_sky_lightcone(lightcone.brightness_temp)
 
+        ctx.remove("lightcone")
+        del lightcone
+        
         # Now get foreground visibilities and add them in
         foregrounds = ctx.get("foregrounds", [])
 
@@ -570,7 +573,6 @@ class CoreInstrumental(CoreBase):
             vis = self.add_instrument(box)
 
         ctx.add("visibilities", vis)
-        ctx.add("new_sky", box)
 
         # TODO: These aren't strictly necessary
         ctx.add("baselines", self.baselines)
@@ -639,10 +641,10 @@ class CoreInstrumental(CoreBase):
 
         return visibilities
 
-    @cached_property
-    def uv_grid(self):
-        """The grid of uv along one side"""
-        return fftfreq(N=self.n_cells, d=self.cell_size, b=2 * np.pi)
+#    @cached_property
+#    def uv_grid(self):
+#        """The grid of uv along one side"""
+#        return fftfreq(N=self.n_cells, d=self.cell_size, b=2 * np.pi)
 
     @cached_property
     def baselines(self):
@@ -705,9 +707,10 @@ class CoreInstrumental(CoreBase):
         beam_area : (nfrequencies)-array
             The beam area of the sky (in sr).
         """
-
+        sky_coords = np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
+        
         # Create a meshgrid for the beam attenuation on sky array
-        L, M = np.meshgrid(np.sin(self.sky_coords), np.sin(self.sky_coords), indexing='ij')
+        L, M = np.meshgrid(np.sin(sky_coords), np.sin(sky_coords), indexing='ij')
 
         attenuation = np.exp(
             np.outer(-(L ** 2 + M ** 2), 1. / (2 * self.sigma(frequencies) ** 2)).reshape(
