@@ -557,8 +557,8 @@ class CoreInstrumental(CoreBase):
         if lightcone is not None:
             box += self.prepare_sky_lightcone(lightcone.brightness_temp)
 
-        ctx.remove("lightcone")
-        del lightcone
+            ctx.remove("lightcone")
+            del lightcone
         
         # Now get foreground visibilities and add them in
         foregrounds = ctx.get("foregrounds", [])
