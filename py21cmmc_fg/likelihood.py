@@ -548,16 +548,22 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         indx_u = np.digitize(u_bl, centres)
         indx_v = np.digitize(v_bl, centres)
         
-        beam = []
-        
-        for jj in range(len(u_bl)):
-            x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)],copy=False)
-            B = ((np.sqrt(np.pi/a))* np.exp(- (np.pi**2 *((x - u_bl[jj])**2 + (y - v_bl[jj])**2 ))/ a)).T
-            B[B<min_attenuation] = 0
-            beam.append(B)
-        
+        # beam = []
+
+        C = np.sqrt(np.pi/a)
+        P2a = (np.pi**2)/a
+
         indx_u+= -int(N/2)
         indx_v+= -int(N/2)
+
+        beam = np.zeros([len(u_bl),N,N])
+        
+        for jj in range(len(u_bl)):
+            x, y = np.meshgrid(centres[indx_u[jj]:indx_u[jj]+N], centres[indx_v[jj]:indx_v[jj]+N],copy=False)
+            B = (C * np.exp(-  P2a*((x - u_bl[jj])**2 + (y - v_bl[jj])**2 ))).T
+            B[B<min_attenuation] = 0
+            # beam.append(B)
+            beam[jj][:B.shape[0],:B.shape[1]] =B 
         
         indx_u[indx_u<0] = 0
         indx_v[indx_v<0] = 0         
@@ -604,13 +610,32 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             v_bl = (self.baselines[:,1] * freq / const.c).value
 
             beam, indx_u, indx_v = self.fourierBeam(centres, u_bl, v_bl, freq, 1/ (2 * self._instr_core.sigma(freq)**2), N=N)
+
+            beamsum = np.sum(beam,axis=(1,2))
+
             for kk in range(len(indx_u)):
                 
-                if np.sum(beam[kk])!=0:
-                    visgrid[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,jj]
+                if beamsum[kk]!=0:
+                    (beamushape,beamvshape) = np.shape(beam[kk])
+
+                    #Check if the beam has gone over the edge of visgrid in the u-plane
+                    val =  indx_u[kk]+beamushape - n_uv
+                    if(val>0):
+                        ibeamindx_u = beamushape - val
+                    else:
+                        ibeamindx_u = beamushape
+
+                    #Check if the beam has gone over the edge of visgrid in the v-plane
+                    val = indx_v[kk]+beamvshape - n_uv
+                    if(val>0):
+                        ibeamindx_v = beamvshape - val
+                    else:
+                        ibeamindx_v = beamvshape
+
+                    visgrid[indx_u[kk]:indx_u[kk]+beamushape, indx_v[kk]:indx_v[kk]+beamvshape, jj] += beam[kk][:ibeamindx_u,:ibeamindx_v] / beamsum[kk] * visibilities[kk,jj]
 
                     if kernel_weights is None:
-                        weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], jj] += beam[kk] / np.sum(beam[kk])
+                        weights[indx_u[kk]:indx_u[kk]+beamushape, indx_v[kk]:indx_v[kk]+beamvshape, jj] += beam[kk][:ibeamindx_u,:ibeamindx_v] / beamsum[kk]
 
         if kernel_weights is None:
             kernel_weights = weights
@@ -677,14 +702,35 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             #             weights[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]])
 
             beam, indx_u, indx_v = LikelihoodInstrumental2D.fourierBeam(centres, u_bl, v_bl, freq,a[ii], N=N)
+
+            # print(np.shape(beam))
+
+            beamsum = np.sum(beam,axis=(1,2))
+
             for kk in range(len(indx_u)):
                 
-                if np.sum(beam[kk])!=0:
-                    vis_real[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], ii] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,ii].real
-                    vis_imag[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], ii] += beam[kk] / np.sum(beam[kk]) * visibilities[kk,ii].imag
+                if beamsum[kk]!=0:
+                    (beamushape,beamvshape) = np.shape(beam[kk])
+
+                    #Check if the beam has gone over the edge of visgrid in the u-plane
+                    val =  indx_u[kk]+beamushape - n_uv
+                    if(val>0):
+                        ibeamindx_u = beamushape - val
+                    else:
+                        ibeamindx_u = beamushape
+
+                    #Check if the beam has gone over the edge of visgrid in the v-plane
+                    val = indx_v[kk]+beamvshape - n_uv
+                    if(val>0):
+                        ibeamindx_v = beamvshape - val
+                    else:
+                        ibeamindx_v = beamvshape
+
+                    vis_real[indx_u[kk]:indx_u[kk]+beamushape, indx_v[kk]:indx_v[kk]+beamvshape, ii] += beam[kk][:ibeamindx_u,:ibeamindx_v] / beamsum[kk] * visibilities[kk,ii].real
+                    vis_imag[indx_u[kk]:indx_u[kk]+beamushape, indx_v[kk]:indx_v[kk]+beamvshape, ii] += beam[kk][:ibeamindx_u,:ibeamindx_v] / beamsum[kk] * visibilities[kk,ii].imag
 
                     if weights_buff is not None:
-                        weights[indx_u[kk]:indx_u[kk]+np.shape(beam[kk])[0], indx_v[kk]:indx_v[kk]+np.shape(beam[kk])[1], ii] += beam[kk] / np.sum(beam[kk])
+                        weights[indx_u[kk]:indx_u[kk]+beamushape, indx_v[kk]:indx_v[kk]+beamvshape, ii] += beam[kk][:ibeamindx_u,:ibeamindx_v] / beamsum[kk]
 
     def grid_visibilities_parallel(self, visibilities,min_attenuation = 1e-10, N = 120):
         """
