@@ -23,6 +23,10 @@ from .core import CoreInstrumental, ForegroundsBase
 from .util import lognormpdf
 import os
 import time
+import py21cmmc as p21
+from py21cmmc.mcmc  import build_computation_chain
+from py21cmmc.mcmc.cosmoHammer import CosmoHammerSampler, LikelihoodComputationChain, HDFStorageUtil, Params
+
 
 class NoDaemonProcess(multiprocessing.Process):
     # make 'daemon' attribute always return False
@@ -336,6 +340,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         pool = MyPool(nthreads)
         
+
         power = pool.map(fnc, np.arange(int(nrealisations/2)))
         power2 = pool.map(fnc, np.arange(int(nrealisations/2)))
         power.extend(power2)
@@ -358,6 +363,9 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                    
         pool.close()
         pool.join()
+
+        raise SystemExit()
+
 
         return mean, cov
 
@@ -1019,20 +1027,71 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         return cosmo.comoving_distance(z) / (1 * un.sr)
 
 
+class CustomCoreLightConeModule(CoreLightConeModule):
+
+    def __init__(self,LikelihoodComputationChain,**kwargs):
+
+        self._LikelihoodComputationChain = LikelihoodComputationChain
+        super().__init__(**kwargs)
+
 def _produce_mock(self, params, i):
     """Produces a mock power spectrum for purposes of getting numerical_covariances"""
     # Create an empty context with the given parameters.
-    np.random.seed(i)
+    # np.random.seed(i)
     ctx = self.chain.createChainContext(params)
 
-    # For each realisation, run every foreground core (not the signal!)
-    for core in self.foreground_cores:
-        core.simulate_mock(ctx)
+    print(self._lightcone_core.astro_params)
 
-    # And turn them into visibilities
-    self._instr_core.simulate_mock(ctx)
+    #Regenerate the lightcone
+    # logger.info("Regenerating the lightcone with params ION_Tvir_MIN = %f L_X = %f NU_X_THRESH = %f X_RAY_Tvir_MIN = %f" %(self._lightcone_core.astro_params["ION_Tvir_MIN"],self._lightcone_core.astro_params["L_X"],self._lightcone_core.astro_params["NU_X_THRESH"],self._lightcone_core.astro_params["X_RAY_Tvir_MIN"]))
+    core_eor = CustomCoreLightConeModule(
+        LikelihoodComputationChain = self._LikelihoodComputationChain,
+        redshift=self._lightcone_core.redshift,  # Lower redshift of the lightcone
+        max_redshift=self._lightcone_core.max_redshift,  # Approximate maximum redshift of the lightcone (will be exceeded).
+        user_params=self._lightcone_core.user_params,
+        astro_params=self._lightcone_core.astro_params,
+        z_step_factor=self._lightcone_core.z_step_factor,  # How large the steps between evaluated redshifts are (log).
+        regenerate=self._lightcone_core.regenerate,
+        # keep_data_in_memory=self._lightcone_core.keep_data_in_memory,
+        store=self._lightcone_core.store,
+        change_seed_every_iter=self._lightcone_core.change_seed_every_iter,
+        initial_conditions_seed = i+1
+    )
 
-    # And compute the power
+    # tmpparams = dict(  # Parameter dict as described above.
+    #     HII_EFF_FACTOR=[20.0, 10.0, 250.0, 3.0],
+    #     ION_Tvir_MIN=[4.48, 4.0, 6.0, 1.0],
+    #     L_X = [40.5, 38, 42, 0.5],
+    #     NU_X_THRESH =[500, 100, 1500, 50],
+    # )
+
+    # if not isinstance(tmpparams, Params):
+    #     tmpparams = Params(*[(k, v) for k, v in tmpparams.items()])
+
+    # chain = build_computation_chain([core_eor,self._instr_core,self.foreground_cores[0]],self._LikelihoodComputationChain.getLikelihoodModules(),tmpparams)
+
+
+    # chain.setup()
+
+    # ctx = chain.createChainContext(params)
+
+    core_eor.setup()
+    core_eor.build_model_data(ctx)
+
+
+    self._instr_core.build_model_data(ctx)
+
+
+    # # For each realisation, run every foreground core (not the signal!)
+    # for core in self.foreground_cores:
+    #     core.simulate_mock(ctx)
+
+    # # And turn them into visibilities
+    # self._instr_core.simulate_mock(ctx)
+
+    # # And compute the power
     power = self.compute_power(ctx.get("visibilities"))
+
+    np.savez("data/p_signal_%i" %i,p_signal = power)
 
     return power
