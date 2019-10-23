@@ -336,22 +336,21 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         pool = MyPool(nthreads)
         
-        power = pool.map(fnc, np.arange(int(nrealisations/2)))
-        power2 = pool.map(fnc, np.arange(int(nrealisations/2)))
-        power.extend(power2)
-        
+        power = pool.map(fnc, np.arange(nrealisations))
+
         # Note, this covariance *already* has thermal noise built in.
         cov = []
         mean = []
         
         for ii in range(self.n_obs):
-            mean.append(np.mean(np.array(power)[:,ii,:,:], axis=0))
 
             if self.ps_dim == 2:
+                mean.append(np.mean(np.array(power)[:,ii,:,:], axis=0))
                 cov.append([np.cov(x) for x in np.array(power)[:,ii,:,:].transpose((1, 2, 0))])
             else:
-                cov = np.var(np.array(power)[:,ii,:,:], axis=0)
-
+                mean.append(np.mean(np.array(power)[:,ii,:], axis=0))
+                cov = np.var(np.array(power)[:,ii,:], axis=0)
+        
         #Cleanup the memory
         for i in range(len(power)-1,-1,-1):
             del power[i]    
@@ -547,8 +546,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         
         indx_u = np.digitize(u_bl, centres)
         indx_v = np.digitize(v_bl, centres)
-        
-        # beam = []
 
         C = np.sqrt(np.pi/a)
         P2a = (np.pi**2)/a
@@ -562,7 +559,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             x, y = np.meshgrid(centres[indx_u[jj]:indx_u[jj]+N], centres[indx_v[jj]:indx_v[jj]+N],copy=False)
             B = (C * np.exp(-  P2a*((x - u_bl[jj])**2 + (y - v_bl[jj])**2 ))).T
             B[B<min_attenuation] = 0
-            # beam.append(B)
+            
             beam[jj][:B.shape[0],:B.shape[1]] =B 
         
         indx_u[indx_u<0] = 0
@@ -945,7 +942,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         "Grid of positive frequency fourier-modes"
         dnu = self.frequencies[1] - self.frequencies[0]
         eta = fftfreq(int(len(self.frequencies) / self.n_obs), d=dnu, b=2 * np.pi)
-        return eta[eta > self.eta_min]
+        if self.ps_dim ==2:
+            return eta[eta > self.eta_min]
+        elif self.ps_dim ==1:
+            return eta
 
     @cached_property
     def grid_weights(self):
@@ -989,8 +989,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         L = int(len(freq) / n_obs)
         
         for ii in range(n_obs):
-            ft.append(fft(vis[:,:,ii*L:(ii+1)*L] * taper(L), W, axes=(2,), a=0, b=2 * np.pi)[0][:,:,int(L/2):])  # return the positive part)
+            x = fft(vis[:,:,ii*L:(ii+1)*L] * taper(L), W, axes=(2,), a=0, b=2 * np.pi)[0]
         
+            if dim==2:
+                ft.append(x[:,:,int(L/2):])  # return the positive part
+            
+            elif dim==1:
+                ft.append(x)
+            
         ft = np.array(ft)
         return ft
 
