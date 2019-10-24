@@ -10,6 +10,7 @@ from functools import partial
 
 import numpy as np
 from astropy import constants as const
+from astropy.cosmology import Planck15 as cosmo
 from astropy import units as un
 from cached_property import cached_property
 from powerbox.dft import fft, fftfreq
@@ -22,7 +23,6 @@ from scipy import signal
 from .core import CoreInstrumental, ForegroundsBase
 from .util import lognormpdf
 import os
-import time
 
 class NoDaemonProcess(multiprocessing.Process):
     # make 'daemon' attribute always return False
@@ -510,11 +510,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 )[0]
     
             elif ps_dim == 1:
-    
+                # need to convert uv and eta to same cosmo unit
+                zmid = 1420e6/ np.mean(self.frequencies) -1
+                
                 P = angular_average_nd(
                     field=power_3d,
-                    coords=[self.uvgrid, self.uvgrid, self.eta],
-                    bins=self.u_edges,
+                    coords=[self.k_perp(self.uvgrid, zmid).value,self.k_perp(self.uvgrid, zmid).value, self.k_paral(self.eta, zmid).value],
+                    bins=self.k_perp(self.u_edges, zmid).value,
                     weights=kernel_weights,
                     bin_ave=False,
                 )[0]
@@ -699,8 +701,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             #             weights[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]])
 
             beam, indx_u, indx_v = LikelihoodInstrumental2D.fourierBeam(centres, u_bl, v_bl, freq,a[ii], N=N)
-
-            # print(np.shape(beam))
 
             beamsum = np.sum(beam,axis=(1,2))
 
@@ -1001,28 +1001,51 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         return ft
 
     @staticmethod
-    def hz_to_mpc(nu_min, nu_max, cosmo):
-        """
-        Convert a frequency range in Hz to a distance range in Mpc.
-        """
-        z_max = 1420e6 / nu_min - 1
-        z_min = 1420e6 / nu_max - 1
-
-        return (cosmo.comoving_distance(z_max) - cosmo.comoving_distance(z_min)) / (nu_max - nu_min)
-
-    @staticmethod
-    def sr_to_mpc2(z, cosmo):
-        """
-        Conversion factor from steradian to Mpc^2 at a given redshift.
+    def k_perp(r, z):
+        '''
+        The conversion factor to find the perpendicular scale in Mpc given the angular scales and redshift
+        
         Parameters
         ----------
-        z_mid
-
+        r : float or array-like
+            The radius in u,v Fourier space
+    
+        z : float or array-like
+            The redshifts
+            
         Returns
         -------
-
-        """
-        return cosmo.comoving_distance(z) / (1 * un.sr)
+        k_perpendicular : float or array-like
+            The scale in h Mpc^1
+        '''
+        k_perpendicular = 2*np.pi*r/cosmo.comoving_distance([z])*cosmo.h
+        return k_perpendicular ## [h Mpc^1]
+    
+    @staticmethod
+    def k_paral(eta, z):
+        '''
+        The conversion factor to find the parallel scale in Mpc given the frequency scale in Hz^-1 and redshift
+        
+        Parameters
+        ----------
+        eta : float or array-like
+            The frequency scale in Hz^-1
+    
+        z : float or array-like
+            The redshifts
+            
+        Returns
+        -------
+        k_perpendicular : float or array-like
+            The scale in h Mpc^1
+        '''
+        f_21 = 1420e6*un.Hz
+        E_z = cosmo.efunc(z)
+        H_0 = (cosmo.H0).to(un.m/(un.Mpc * un.s))
+        Gz = H_0/cosmo.h*f_21*E_z/(const.c*(1+z)**2)
+        
+        k_parallel = 2*np.pi*Gz*eta/(1*un.Hz)
+        return k_parallel ## [h Hz Mpc^-1]
 
 
 def _produce_mock(self, params, i):
