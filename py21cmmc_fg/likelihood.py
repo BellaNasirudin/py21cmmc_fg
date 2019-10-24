@@ -118,6 +118,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         self.use_analytical_noise = use_analytical_noise
         
         self.kernel_weights = None # set this as None so we only do this once
+        self.k = None # same here
 
     def setup(self):
         super().setup()
@@ -150,9 +151,12 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Remember that the results of "simulate" can be used in two places: (i) the computeLikelihood method, and (ii)
         # as data saved to file. In case of the latter, it is useful to save extra variables to the dictionary to be
         # looked at for diagnosis, even though they are not required in computeLikelihood().
-        return [dict(p_signal=p_signal, baselines=self.baselines, frequencies=self.frequencies,
+        if self.ps_dim == 2:
+            return [dict(p_signal=p_signal, baselines=self.baselines, frequencies=self.frequencies,
                      u=self.u, eta=self.eta)]
-                     #, nbl_uv=self.nbl_uv, nbl_uvnu=self.nbl_uvnu, nbl_u=self.nbl_u, grid_weights=self.grid_weights)]
+        elif self.ps_dim == 1:
+            return [dict(p_signal=p_signal, baselines=self.baselines, frequencies=self.frequencies,
+                     k = self.k)]
 
     def define_noise(self, ctx, model):
         """
@@ -519,11 +523,16 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     bins=self.k_perp(self.u_edges, zmid).value,
                     weights=kernel_weights,
                     bin_ave=False,
-                )[0]
+                )
+                
+                if self.k is None:
+                    self.k = P[1]
+                
+                P = P[0]
                 
             P[np.isnan(P)] = 0
             PS.append(P)
-
+        
         return PS
 
     @staticmethod
@@ -618,14 +627,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     (beamushape,beamvshape) = np.shape(beam[kk])
 
                     #Check if the beam has gone over the edge of visgrid in the u-plane
-                    val =  indx_u[kk]+beamushape - n_uv
+                    val =  indx_u[kk]+beamushape - self.n_uv
                     if(val>0):
                         ibeamindx_u = beamushape - val
                     else:
                         ibeamindx_u = beamushape
 
                     #Check if the beam has gone over the edge of visgrid in the v-plane
-                    val = indx_v[kk]+beamvshape - n_uv
+                    val = indx_v[kk]+beamvshape - self.n_uv
                     if(val>0):
                         ibeamindx_v = beamvshape - val
                     else:
@@ -665,40 +674,6 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
             u_bl = (baselines[:,0] * freq / const.c).value
             v_bl = (baselines[:,1] * freq / const.c).value
-
-            # a = 1/ (2 * sigfreq[ii]**2)
-
-            # indx_u = np.digitize(u_bl, centres)
-            # indx_v = np.digitize(v_bl, centres)
-
-            # beam = np.zeros([len(u_bl),N,N])
-            # xshape = np.zeros(len(u_bl),dtype=int)
-            # yshape = np.zeros(len(u_bl),dtype=int)
-
-            # for jj in range(len(u_bl)):
-            #     x, y = np.meshgrid(centres[indx_u[jj]-int(N/2):indx_u[jj]+int(N/2)], centres[indx_v[jj]-int(N/2):indx_v[jj]+int(N/2)],copy=False)
-            #     B = (np.exp(- ((x - u_bl[jj])**2 + (y - v_bl[jj])**2 )/ a)).T
-            #     B[B<min_attenuation] = 0
-            #     xshape[jj] = B.shape[0]
-            #     yshape[jj] = B.shape[1]
-            #     beam[jj][:xshape[jj],:yshape[jj]] = B
-
-            # indx_u+= -int(N/2)
-            # indx_v+= -int(N/2)
-
-            # indx_u[indx_u<0] = 0
-            # indx_v[indx_v<0] = 0
-
-            # for kk in range(len(indx_u)):
-            #     if np.sum(beam[kk][:xshape[kk],:yshape[kk]])!=0:
-            #         vis_real[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]]) * visibilities[kk,ii].real
-            #         vis_imag[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]]) * visibilities[kk,ii].imag
-    
-            #         if(np.any(np.isnan(vis_imag[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii]))):
-            #             print(visibilities[kk,ii].imag,beam[kk][:xshape[kk],:yshape[kk]])
-
-            #         if weights_buff is not None:
-            #             weights[indx_u[kk]:indx_u[kk]+xshape[kk], indx_v[kk]:indx_v[kk]+yshape[kk], ii] += beam[kk][:xshape[kk],:yshape[kk]] / np.sum(beam[kk][:xshape[kk],:yshape[kk]])
 
             beam, indx_u, indx_v = LikelihoodInstrumental2D.fourierBeam(centres, u_bl, v_bl, freq,a[ii], N=N)
 
