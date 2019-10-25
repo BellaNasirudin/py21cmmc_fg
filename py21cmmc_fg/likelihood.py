@@ -520,7 +520,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 P = angular_average_nd(
                     field=power_3d,
                     coords=[self.k_perp(self.uvgrid, zmid).value,self.k_perp(self.uvgrid, zmid).value, self.k_paral(self.eta, zmid).value],
-                    bins=self.k_perp(self.u_edges, zmid).value,
+                    bins=self.u_edges,
                     weights=kernel_weights,
                     bin_ave=False,
                 )
@@ -845,7 +845,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     @cached_property
     def u_edges(self):
         """Edges of |u| bins where |u| = sqrt(u**2+v**2)"""
-        return np.linspace(self.u_min, self.u_max, self.n_ubins + 1)
+        if self.ps_dim == 2:
+            return np.linspace(self.u_min, self.u_max, self.n_ubins + 1)
+        elif self.ps_dim == 1:
+            return np.linspace(0.01, 1, self.n_ubins + 1)
 
     @cached_property
     def u(self):
