@@ -516,10 +516,19 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
             elif ps_dim == 1:
                 # need to convert uv and eta to same cosmo unit
                 zmid = 1420e6/ np.mean(self.frequencies) -1
+                kperp = self.k_perp(self.uvgrid, zmid).value
+                kpar = self.k_paral(self.eta, zmid).value
+                
+                # need to cut some k scales to avoid foregrounds
+                kmin = 0.497 # Horizon limit from 21cmSense
+                avoid_k = np.where(np.abs(kpar)<kmin)
+                
+                power_3d[:,:,np.min(avoid_k):np.max(avoid_k)+1] = 0
+                kernel_weights[:,:,np.min(avoid_k):np.max(avoid_k)+1] = 0
                 
                 P = angular_average_nd(
                     field=power_3d,
-                    coords=[self.k_perp(self.uvgrid, zmid).value,self.k_perp(self.uvgrid, zmid).value, self.k_paral(self.eta, zmid).value],
+                    coords=[kperp, kperp, kpar],
                     bins=self.u_edges,
                     weights=kernel_weights,
                     bin_ave=False,
@@ -848,7 +857,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         if self.ps_dim == 2:
             return np.linspace(self.u_min, self.u_max, self.n_ubins + 1)
         elif self.ps_dim == 1:
-            return np.linspace(0.01, 1, self.n_ubins + 1)
+            return np.linspace(0.01, 1.5, self.n_ubins + 1)
 
     @cached_property
     def u(self):
