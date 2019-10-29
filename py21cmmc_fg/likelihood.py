@@ -342,7 +342,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         
         power = pool.map(fnc, np.arange(nrealisations))
         np.savez("1dps_noise-cut", power=power)
-        raise SystemExit
+        
         # Note, this covariance *already* has thermal noise built in.
         cov = []
         mean = []
@@ -526,8 +526,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 kmin = 2*np.pi/((1.7/0.1)*((1+zmid)/10.)**.5 * (0.266/0.15)**-0.5 * 1e3)*(np.sqrt(u**2 + v**2)/(np.mean(self.frequencies)/1e9)) + 0.1
                 
                 for ff, eta in enumerate(kpar):
-                    power_3d[:,:,ff][kmin<np.abs(eta)] = 0
-                    kernel_weights[:,:,ff][kmin<np.abs(eta)] = 0
+                    power_3d[:,:,ff][np.abs(eta)<kmin] = 0
+                    kernel_weights[:,:,ff][np.abs(eta)<kmin] = 0
                 
                 P = angular_average_nd(
                     field=power_3d,
