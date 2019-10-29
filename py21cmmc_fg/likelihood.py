@@ -341,7 +341,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         pool = MyPool(nthreads)
         
         power = pool.map(fnc, np.arange(nrealisations))
-
+        np.savez("1dps_noise-cut", power=power)
+        raise SystemExit
         # Note, this covariance *already* has thermal noise built in.
         cov = []
         mean = []
@@ -520,15 +521,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 kpar = self.k_paral(self.eta, zmid).value
                 
                 # need to cut some k scales to avoid foregrounds
-                kmin = 0.497 # Horizon limit from 21cmSense
-                avoid_k = np.where(np.abs(kpar)<kmin)
+                # find horizon limit from 21cmSense
+                u, v = np.meshgrid(self.uvgrid,self.uvgrid)                
+                kmin = 2*np.pi/((1.7/0.1)*((1+zmid)/10.)**.5 * (0.266/0.15)**-0.5 * 1e3)*(np.sqrt(u**2 + v**2)/(np.mean(self.frequencies)/1e9)) + 0.1
                 
-                power_3d[:,:,np.min(avoid_k):np.max(avoid_k)+1] = 0
-                kernel_weights[:,:,np.min(avoid_k):np.max(avoid_k)+1] = 0
-                
-                # cut out half of the uv space since not independent
-                power_3d[int(self.n_uv/2):,int(self.n_uv/2):,:] = 0
-                kernel_weights[int(self.n_uv/2):,int(self.n_uv/2):,:] = 0
+                for ff, eta in enumerate(kpar):
+                    power_3d[:,:,ff][kmin<np.abs(eta)] = 0
+                    kernel_weights[:,:,ff][kmin<np.abs(eta)] = 0
                 
                 P = angular_average_nd(
                     field=power_3d,
