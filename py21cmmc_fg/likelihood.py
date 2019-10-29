@@ -526,6 +526,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 power_3d[:,:,np.min(avoid_k):np.max(avoid_k)+1] = 0
                 kernel_weights[:,:,np.min(avoid_k):np.max(avoid_k)+1] = 0
                 
+                # cut out half of the uv space since not independent
+                power_3d[int(self.n_uv/2):,int(self.n_uv/2):,:] = 0
+                kernel_weights[int(self.n_uv/2):,int(self.n_uv/2):,:] = 0
+                
                 P = angular_average_nd(
                     field=power_3d,
                     coords=[kperp, kperp, kpar],
@@ -538,7 +542,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     self.k = P[1]
                 
                 P = P[0]
-                
+            
             P[np.isnan(P)] = 0
             PS.append(P)
         
