@@ -43,7 +43,7 @@ logger = logging.getLogger("21CMMC")
 class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
 
-    def __init__(self, n_uv=1000, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman, n_obs=1, nparallel = 1,
+    def __init__(self, n_uv=999, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman, n_obs=1, nparallel = 1,
                  nrealisations=100, nthreads=1, model_uncertainty=0.15, eta_min=0, use_analytical_noise=False, ps_dim=2,
                  **kwargs):
         """
@@ -581,7 +581,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         indx_u = np.digitize(u_bl, centres)
         indx_v = np.digitize(v_bl, centres)
 
-        C = np.sqrt(np.pi/a)
+        C = np.pi/a
         P2a = (np.pi**2)/a
 
         indx_u+= -int(N/2)
