@@ -116,9 +116,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         self.nparallel = nparallel
 
         self.use_analytical_noise = use_analytical_noise
-        
+        self.fbeam = True
         self.kernel_weights = None # set this as None so we only do this once
         self.k = None # same here
+        self.weights = None
 
     def setup(self):
         super().setup()
@@ -146,6 +147,13 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         self.baselines_type = ctx.get("baselines_type")
         visibilities = ctx.get("visibilities")
+        
+        # TODO: Find a better way to do this
+        # If file of the same name already exists, it will read it and add to the data!!
+        if(os.path.exists(self.datafile[0][:-4]+".mean_vis.npy")==True):
+            vis_mean = np.load(self.datafile[0][:-4]+".mean_vis.npy")
+            visibilities += vis_mean
+            
         p_signal = self.compute_power(visibilities)
 
         # Remember that the results of "simulate" can be used in two places: (i) the computeLikelihood method, and (ii)
@@ -231,7 +239,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     
                 if self.foreground_cores:
                     # Normal case (foreground parameters are not being updated, or there are no foregrounds)
-                    total_model += self.noise["mean"][ii]
+#                    total_model += self.noise["mean"][ii]
                     total_cov = [x + y for x, y in zip(self.noise['covariance'][ii], sig_cov)]
                 else:
                     total_cov = sig_cov
@@ -301,13 +309,17 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         """
         if self.ps_dim == 2:
             cov = []
-            
+            grid_weights = self.grid_weights
             for ii, sig_eta in enumerate(signal_power):
-                cov.append((1 / self.grid_weights[ii] * np.diag(sig_eta)**2))
+                x = (1 / grid_weights[ii] * np.diag(sig_eta)**2)
+                x[np.isnan(x)] = 0
+                cov.append(x)
 
             return cov
         else:
-            return self.grid_weights * signal_power
+            x = 1/self.grid_weights * signal_power**2
+            x[np.isnan(x)] = 0
+            return x
 
     def numerical_covariance(self, params={}, nrealisations=200, nthreads=1):
         """
@@ -340,29 +352,37 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         pool = MyPool(nthreads)
         
-        power = pool.map(fnc, np.arange(nrealisations))
-        np.savez("1dps_noise-cut", power=power)
+        power, visgrid = zip(*pool.map(fnc, np.arange(nrealisations)))
         
         # Note, this covariance *already* has thermal noise built in.
         cov = []
         mean = []
-        
-        for ii in range(self.n_obs):
 
+        for ii in range(self.n_obs):
+            
             if self.ps_dim == 2:
                 mean.append(np.mean(np.array(power)[:,ii,:,:], axis=0))
                 cov.append([np.cov(x) for x in np.array(power)[:,ii,:,:].transpose((1, 2, 0))])
             else:
                 mean.append(np.mean(np.array(power)[:,ii,:], axis=0))
-                cov = np.var(np.array(power)[:,ii,:], axis=0)
+                cov = np.var(np.array(power)[:,ii,:] , axis=0)
         
         #Cleanup the memory
-        for i in range(len(power)-1,-1,-1):
-            del power[i]    
+#        for i in range(len(power)-1,-1,-1):
+#            del power[i]
                    
         pool.close()
         pool.join()
-
+        
+        vis_mean = np.zeros((len(self.baselines), len(self.frequencies)), dtype=np.complex128)
+        visgrid = np.array(visgrid)
+        
+        for ii in range(nrealisations):
+            vis_mean += visgrid[ii]
+            
+        vis_mean = vis_mean / nrealisations
+        
+        np.save(self.datafile[0][:-4]+".mean_vis.npy", vis_mean)
         return mean, cov
 
     @staticmethod
@@ -497,7 +517,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         Returns
         -------
         PS : float (n_obs, n_eta, bins)-list
-            The cylindrical averaged (or 2D) Power Spectrum, with units JyHz**2.
+            The cylindrical averaged (or 2D) Power Spectrum, in unit Jy^2 Hz^2.
         """
         logger.info("Calculating the power spectrum")
         PS = []
@@ -507,7 +527,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
     
             if ps_dim == 2:
                 P = angular_average_nd(
-                    field=power_3d,
+                    field=power_3d[:,:,int(len(self.frequencies)/2):],  # return the positive part,
                     coords=[self.uvgrid, self.uvgrid, self.eta],
                     bins=self.u_edges, n=ps_dim,
                     weights=np.sum(kernel_weights, axis=2),  # weights,
@@ -519,16 +539,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 zmid = 1420e6/ np.mean(self.frequencies) -1
                 kperp = self.k_perp(self.uvgrid, zmid).value
                 kpar = self.k_paral(self.eta, zmid).value
-                
-                # need to cut some k scales to avoid foregrounds
-                # find horizon limit from 21cmSense
-                u, v = np.meshgrid(self.uvgrid,self.uvgrid)                
-                kmin = 2*np.pi/((1.7/0.1)*((1+zmid)/10.)**.5 * (0.266/0.15)**-0.5 * 1e3)*(np.sqrt(u**2 + v**2)/(np.mean(self.frequencies)/1e9)) + 0.1
-                
-                for ff, eta in enumerate(kpar):
-                    power_3d[:,:,ff][np.abs(eta)<kmin] = 0
-                    kernel_weights[:,:,ff][np.abs(eta)<kmin] = 0
-                
+                    
                 P = angular_average_nd(
                     field=power_3d,
                     coords=[kperp, kperp, kpar],
@@ -624,44 +635,66 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
 
         if kernel_weights is None:
             weights = np.zeros((self.n_uv, self.n_uv, len(self.frequencies)))
+            
+        if self.fbeam is True:
+            
+            for jj, freq in enumerate(self.frequencies):
 
-        for jj, freq in enumerate(self.frequencies):
-            u_bl = (self.baselines[:,0] * freq / const.c).value
-            v_bl = (self.baselines[:,1] * freq / const.c).value
-
-            beam, indx_u, indx_v = self.fourierBeam(centres, u_bl, v_bl, freq, 1/ (2 * self._instr_core.sigma(freq)**2), N=N)
-
-            beamsum = np.sum(beam,axis=(1,2))
-
-            for kk in range(len(indx_u)):
+                u_bl = (self.baselines[:,0] * freq / const.c).value
+                v_bl = (self.baselines[:,1] * freq / const.c).value
                 
-                if beamsum[kk]!=0:
-                    (beamushape,beamvshape) = np.shape(beam[kk])
+                beam, indx_u, indx_v = self.fourierBeam(centres, u_bl, v_bl, freq, 1/ (2 * self._instr_core.sigma(freq)**2), N=N)
+    
+                beamsum = np.sum(beam,axis=(1,2))
+    
+                for kk in range(len(indx_u)):
+                    
+                    if beamsum[kk]!=0:
+                        (beamushape,beamvshape) = np.shape(beam[kk])
+    
+                        #Check if the beam has gone over the edge of visgrid in the u-plane
+                        val =  indx_u[kk]+beamushape - self.n_uv
+                        if(val>0):
+                            ibeamindx_u = beamushape - val
+                        else:
+                            ibeamindx_u = beamushape
+    
+                        #Check if the beam has gone over the edge of visgrid in the v-plane
+                        val = indx_v[kk]+beamvshape - self.n_uv
+                        if(val>0):
+                            ibeamindx_v = beamvshape - val
+                        else:
+                            ibeamindx_v = beamvshape
+    
+                        visgrid[indx_u[kk]:indx_u[kk]+beamushape, indx_v[kk]:indx_v[kk]+beamvshape, jj] += beam[kk][:ibeamindx_u,:ibeamindx_v] / beamsum[kk] * visibilities[kk,jj]
+    
+                        if kernel_weights is None:
+                            weights[indx_u[kk]:indx_u[kk]+beamushape, indx_v[kk]:indx_v[kk]+beamvshape, jj] += beam[kk][:ibeamindx_u,:ibeamindx_v] / beamsum[kk]
+        else:
 
-                    #Check if the beam has gone over the edge of visgrid in the u-plane
-                    val =  indx_u[kk]+beamushape - self.n_uv
-                    if(val>0):
-                        ibeamindx_u = beamushape - val
-                    else:
-                        ibeamindx_u = beamushape
+            u_bl = (self.baselines[:,0] * np.mean(self.frequencies) / const.c).value
+            v_bl = (self.baselines[:,1] * np.mean(self.frequencies) / const.c).value
+                
+            indx_u = np.digitize(u_bl, centres)
+            indx_v = np.digitize(v_bl, centres)
 
-                    #Check if the beam has gone over the edge of visgrid in the v-plane
-                    val = indx_v[kk]+beamvshape - self.n_uv
-                    if(val>0):
-                        ibeamindx_v = beamvshape - val
-                    else:
-                        ibeamindx_v = beamvshape
-
-                    visgrid[indx_u[kk]:indx_u[kk]+beamushape, indx_v[kk]:indx_v[kk]+beamvshape, jj] += beam[kk][:ibeamindx_u,:ibeamindx_v] / beamsum[kk] * visibilities[kk,jj]
-
+            indx_u1 = np.digitize(-1*u_bl, centres)
+            indx_v1 = np.digitize(-1*v_bl, centres)
+            
+            for jj, freq in enumerate(self.frequencies):
+                for kk in range(len(indx_u)):
+                    visgrid[indx_u[kk]-1, indx_v[kk]-1,jj] += visibilities[kk,jj]
+                    visgrid[indx_u1[kk]-1, indx_v1[kk]-1,jj] += visibilities[kk,jj]
+                    
                     if kernel_weights is None:
-                        weights[indx_u[kk]:indx_u[kk]+beamushape, indx_v[kk]:indx_v[kk]+beamvshape, jj] += beam[kk][:ibeamindx_u,:ibeamindx_v] / beamsum[kk]
-
+                        weights[indx_u[kk]-1, indx_v[kk]-1,jj] += 1
+                        weights[indx_u[kk]-1, indx_v[kk]-1,jj] += 1
+                    
         if kernel_weights is None:
             kernel_weights = weights
 
         visgrid[kernel_weights!=0] /= kernel_weights[kernel_weights!=0]
-
+        
         return visgrid,kernel_weights
 
     @staticmethod
@@ -932,19 +965,34 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         "Grid of positive frequency fourier-modes"
         dnu = self.frequencies[1] - self.frequencies[0]
         eta = fftfreq(int(len(self.frequencies) / self.n_obs), d=dnu, b=2 * np.pi)
-        if self.ps_dim ==2:
+        if self.ps_dim==2:
             return eta[eta > self.eta_min]
-        elif self.ps_dim ==1:
+        elif self.ps_dim==1:
             return eta
 
     @cached_property
     def grid_weights(self):
-        """The number of uv cells that go into a single u annulus (unrelated to baseline weights)"""
-        return angular_average_nd(
-            field=np.ones((len(self.uvgrid),) * 2),
-            coords=[self.uvgrid, self.uvgrid],
-            bins=self.u_edges, n=self.ps_dim, bin_ave=False,
-            average=False)[0]
+        """The number of uv cells that go into a single u annulus (related to baseline weights)"""
+        if(os.path.exists(self.datafile[0][:-4]+".kernel_weights.npy")):
+            field = np.load(self.datafile[0][:-4]+".kernel_weights.npy")   
+        else:
+            field = np.ones((len(self.uvgrid),len(self.uvgrid),len(self.frequencies)))
+                
+        if self.ps_dim == 2:
+
+            return angular_average_nd(
+                field = field**2,
+                coords=[self.uvgrid, self.uvgrid, self.eta],
+                bins=self.u_edges, n=self.ps_dim, bin_ave=False,
+                average=False)[0][:,int(len(self.frequencies)/2):]
+        elif self.ps_dim == 1:
+            zmid = 1420e6/ np.mean(self.frequencies) -1
+
+            return angular_average_nd(
+                field= field**2,
+                coords=[self.k_perp(self.uvgrid, zmid).value,self.k_perp(self.uvgrid, zmid).value, self.k_paral(self.eta, zmid).value],
+                bins=self.u_edges, bin_ave=False,
+                average=False)[0]
 
     @staticmethod
     def frequency_fft(vis, freq, dim, taper=np.ones_like, n_obs =1):
@@ -981,11 +1029,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         for ii in range(n_obs):
             x = fft(vis[:,:,ii*L:(ii+1)*L] * taper(L), W, axes=(2,), a=0, b=2 * np.pi)[0]
         
-            if dim==2:
-                ft.append(x[:,:,int(L/2):])  # return the positive part
-            
-            elif dim==1:
-                ft.append(x)
+            ft.append(x)
             
         ft = np.array(ft)
         return ft
@@ -1054,4 +1098,4 @@ def _produce_mock(self, params, i):
     # And compute the power
     power = self.compute_power(ctx.get("visibilities"))
 
-    return power
+    return power, ctx.get("visibilities")
