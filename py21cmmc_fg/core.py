@@ -441,7 +441,14 @@ class CoreInstrumental(CoreBase):
 
             # Find all the possible combination of tile displacement
             # baselines is a dim2 array of x and y displacements.
-            self._baselines = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2]) * un.m
+            uv = np.zeros((int(len(ant_pos)*(len(ant_pos)-1)/2),3))
+            uv[:,:2] = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2])
+
+            if ERS == False:
+                self._baselines = uv[:,:2] * un.m
+            else:
+                logger.info("Doing things with earth rotation")
+                self._baselines = self.get_baselines_rotation(uv) * un.m
 
             if self.max_bl_length:
                 self._baselines = self._baselines[
@@ -956,6 +963,70 @@ class CoreInstrumental(CoreBase):
 
         return np.array([Xsep.flatten()[np.logical_not(zeros)], Ysep.flatten()[np.logical_not(zeros)]]).T
 
+    def get_baselines_rotation(self, pos_file, tot_daily_obs_time = 6, int_time = 600):
+        """
+        From a set of antenna positions, determine the non-autocorrelated baselines with Earth rotation synthesis.
+
+        Parameters
+        ----------
+        pos_file : 2D array.
+            The (x, y , z) positions of the arrays (presumably in metres).
+
+        tot_daily_obs_time: float
+            The total observation time per day in hours.
+
+        int_time:
+
+        Returns
+        -------
+        new_baselines : (n_baselines,2)-array
+            Each row is the (x,y) co-ordinate of a baseline, in the same units as x,y.
+        """
+
+        slice_num = int(tot_daily_obs_time * 60 * 60 / int_time)
+
+        new_baselines = np.zeros((slice_num*len(pos_file), 3))
+
+        for ii in range(slice_num):
+            new_baselines[ii*len(pos_file):(ii+1)*len(pos_file),:] = self.earth_rotation_synthesis(pos_file, ii, int_time)
+
+        return new_baselines[:,:2] # only return the x,y part
+
+    @profile
+    @staticmethod
+    def earth_rotation_synthesis(Nbase, slice_num, int_time, declination=-30.):
+        """
+        The rotation of the earth over the observation times makes changes the part of the 
+        sky measured by each antenna. This is based on Tools21cm by Giri but need to be checked.
+        Parameters
+        ----------
+        Nbase       : ndarray
+            The array containing all the ux,uy,uz values of the antenna configuration.
+        slice_num   : int
+            The number of the observed slice after each of the integration time.
+        int_time    : float
+            The integration time is the time after which the signal is recorded (in seconds).
+        declination : float
+            The angle of declination refers to the lattitute where telescope is located 
+            (in degres). Default: -30
+        
+        Returns
+        -------
+        new_Nbase   : ndarray
+            It is the new Nbase calculated for the rotated antenna configurations.
+        """
+
+        p     = np.pi/180.
+        delta = p*declination
+        k     = slice_num
+        HA    =-15.0*p*(k-1)*int_time/(3600.0) - np.pi/180.0*90.0 + np.pi/180.0*360.0
+        
+        new_Nbase = np.zeros(Nbase.shape)
+        new_Nbase[:,0] = np.sin(HA)*Nbase[:,0] + np.cos(HA)*Nbase[:,1]
+        new_Nbase[:,1] = -1.0*np.sin(delta)*np.cos(HA)*Nbase[:,0] + np.sin(delta)*np.sin(HA)*Nbase[:,1] + np.cos(delta)*Nbase[:,2]
+        new_Nbase[:,2] = np.cos(delta)*np.cos(HA)*Nbase[:,0] - np.cos(delta)*np.sin(HA)*Nbase[:,1] + np.sin(delta)*Nbase[:,2]
+
+        return new_Nbase
     @property
     def thermal_variance_baseline(self):
         """
