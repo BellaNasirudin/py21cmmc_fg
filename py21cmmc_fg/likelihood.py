@@ -25,17 +25,24 @@ from .util import lognormpdf
 import os
 
 class NoDaemonProcess(multiprocessing.Process):
-    # make 'daemon' attribute always return False
-    def _get_daemon(self):
+    @property
+    def daemon(self):
         return False
-    def _set_daemon(self, value):
+
+    @daemon.setter
+    def daemon(self, value):
         pass
-    daemon = property(_get_daemon, _set_daemon)
+
+
+class NoDaemonContext(type(multiprocessing.get_context())):
+    Process = NoDaemonProcess
 
 # We sub-class multiprocessing.pool.Pool instead of multiprocessing.Pool
 # because the latter is only a wrapper function, not a proper class.
 class MyPool(multiprocessing.pool.Pool):
-    Process = NoDaemonProcess
+    def __init__(self, *args, **kwargs):
+        kwargs['context'] = NoDaemonContext()
+        super(MyPool, self).__init__(*args, **kwargs)
 
 logger = logging.getLogger("21CMMC")
 
@@ -43,8 +50,9 @@ logger = logging.getLogger("21CMMC")
 class LikelihoodInstrumental2D(LikelihoodBaseFile):
     required_cores = [CoreInstrumental]
 
-    def __init__(self, n_uv=999, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman, n_obs=1, nparallel = 1,
-                 nrealisations=100, nthreads=1, model_uncertainty=0.15, eta_min=0, use_analytical_noise=False, ps_dim=2,
+    def __init__(self, n_uv=999, n_ubins=30, uv_max=None, u_min=None, u_max=None, frequency_taper=np.blackman, 
+                 nrealisations=100, nthreads=1, model_uncertainty=0.15, eta_min=0, use_analytical_noise=False,
+                 n_obs=1, nparallel = 1, fbeam= True, ps_dim=2,
                  **kwargs):
         """
         A likelihood for EoR physical parameters, based on a Gaussian 2D power spectrum.
@@ -92,6 +100,18 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         use_analytical_noise : bool, optional
             Whether to use analytical estimate of noise properties (eg. mean and covariance).
 
+        n_obs : int, optional
+            Whether to combine observation from different frequency bands.
+
+        nparallel : int, optional
+            Specify the number of threads to do parallelization when re-gridding the visibilities.
+
+        fbeam : bool, optional
+            Whether to regrid the visibilities according to the Fourier transform of the Gaussian beam.
+
+        ps_dim : int, optional
+            The dimension of the power spectrum. 1 for 1D, and 2 for 2D.
+
         Other Parameters
         ----------------
         datafile : str
@@ -116,10 +136,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         self.nparallel = nparallel
 
         self.use_analytical_noise = use_analytical_noise
-        self.fbeam = True
-        self.kernel_weights = None # set this as None so we only do this once
-        self.k = None # same here
-        self.weights = None
+        self.fbeam = fbeam
+
+        # set this as False so we only do this once
+        self.meanVis_exist = False
 
     def setup(self):
         super().setup()
@@ -150,7 +170,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         
         # TODO: Find a better way to do this
         # If file of the same name already exists, it will read it and add to the data!!
-        if(os.path.exists(self.datafile[0][:-4]+".mean_vis.npy")==True):
+        if((os.path.exists(self.datafile[0][:-4]+".mean_vis.npy")==True) & (self.meanVis_exist == True)):
+            logger.info("Adding the mean visibilities of contaminants")
             vis_mean = np.load(self.datafile[0][:-4]+".mean_vis.npy")
             visibilities += vis_mean
             
@@ -232,14 +253,14 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         lnl = 0
         
         for ii in range(self.n_obs):
-            total_model = model['p_signal'][ii]
+            total_model = model['p_signal'][ii] # this already have mean noise and foregrounds
             
             if self.ps_dim == 2:
                 sig_cov = self.get_cosmic_variance(model['p_signal'][ii])
-    
+                
+                # get the covariance
                 if self.foreground_cores:
                     # Normal case (foreground parameters are not being updated, or there are no foregrounds)
-#                    total_model += self.noise["mean"][ii]
                     total_cov = [x + y for x, y in zip(self.noise['covariance'][ii], sig_cov)]
                 else:
                     total_cov = sig_cov
@@ -367,7 +388,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 mean.append(np.mean(np.array(power)[:,ii,:], axis=0))
                 cov = np.var(np.array(power)[:,ii,:] , axis=0)
         
-        #Cleanup the memory
+        # Cleanup the memory
 #        for i in range(len(power)-1,-1,-1):
 #            del power[i]
                    
@@ -383,6 +404,8 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         vis_mean = vis_mean / nrealisations
         
         np.save(self.datafile[0][:-4]+".mean_vis.npy", vis_mean)
+        self.meanVis_exist = True
+
         return mean, cov
 
     @staticmethod
@@ -482,10 +505,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         # Grid visibilities only if we're not using "grid_centres"
 
         if self.baselines_type != "grid_centres":
-            if(self.nparallel==1):
-                visgrid,kernel_weights = self.grid_visibilities(visibilities)
+            if((self.nparallel==1) or (self.fbeam==False)):
+                visgrid, kernel_weights = self.grid_visibilities(visibilities)
             else:
-                visgrid,kernel_weights = self.grid_visibilities_parallel(visibilities)
+                visgrid, kernel_weights = self.grid_visibilities_parallel(visibilities)
         else:
             visgrid = visibilities
           
@@ -493,9 +516,10 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
         visgrid = self.frequency_fft(visgrid, self.frequencies, self.ps_dim, taper=signal.blackmanharris, n_obs = self.n_obs)#self.frequency_taper)
 
         # Get 2D power from gridded vis.
-        power2d = self.get_power(visgrid,kernel_weights, ps_dim=self.ps_dim)
+        power2d = self.get_power(visgrid, kernel_weights, ps_dim=self.ps_dim)
 
-        if(os.path.exists(self.datafile[0][:-4]+".kernel_weights.npy")==False):
+        # only re-write the regridding kernel weights if we want to simulate things again 
+        if((os.path.exists(self.datafile[0][:-4]+".kernel_weights.npy")==False)):
             np.save(self.datafile[0][:-4]+".kernel_weights.npy",kernel_weights)
 
         return power2d
@@ -530,7 +554,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     field=power_3d[:,:,int(len(self.frequencies)/2):],  # return the positive part,
                     coords=[self.uvgrid, self.uvgrid, self.eta],
                     bins=self.u_edges, n=ps_dim,
-                    weights=np.sum(kernel_weights, axis=2),  # weights,
+                    weights=np.sum(kernel_weights**2, axis=2),  # weights,
                     bin_ave=False,
                 )[0]
     
@@ -544,7 +568,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                     field=power_3d,
                     coords=[kperp, kperp, kpar],
                     bins=self.u_edges,
-                    weights=kernel_weights,
+                    weights=kernel_weights**2,
                     bin_ave=False,
                 )
                 
@@ -985,6 +1009,7 @@ class LikelihoodInstrumental2D(LikelihoodBaseFile):
                 coords=[self.uvgrid, self.uvgrid, self.eta],
                 bins=self.u_edges, n=self.ps_dim, bin_ave=False,
                 average=False)[0][:,int(len(self.frequencies)/2):]
+
         elif self.ps_dim == 1:
             zmid = 1420e6/ np.mean(self.frequencies) -1
 
