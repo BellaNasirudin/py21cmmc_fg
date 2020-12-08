@@ -11,18 +11,17 @@ import logging
 from os import path
 
 import numpy as np
-import py21cmmc as p21
 from astropy import constants as const
 from astropy import units as un
 from powerbox import LogNormalPowerBox, PowerBox
 from powerbox.dft import fft, fftfreq
-from py21cmmc.mcmc.core import CoreBase, NotSetupError
+from py21cmmc.mcmc.core import CoreBase, NotSetupError, CoreLightConeModule
 from scipy.integrate import quad
 from scipy.interpolate import RegularGridInterpolator, RectBivariateSpline
 import multiprocessing as mp
 import ctypes
 
-logger = logging.getLogger("21CMMC")
+logger = logging.getLogger("21cmFAST")
 
 import warnings
 
@@ -474,7 +473,7 @@ class CoreInstrumental(CoreBase):
     def lightcone_core(self):
         "Lightcone core module"
         for m in self._cores:
-            if isinstance(m, p21.mcmc.core.CoreLightConeModule):
+            if isinstance(m, CoreLightConeModule):
                 return m  # Doesn't really matter which one, we only want to access basic properties.
 
         # If nothing is returned, we don't have a lightcone

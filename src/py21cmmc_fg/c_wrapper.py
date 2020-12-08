@@ -67,7 +67,7 @@ def interpolate_map_frequencies(map, freq_in, freq_out):
     else:
         out = np.zeros((n_map, n_map, nf_out)).flatten()
 
-    cfunc(n_map, nf_in, nf_out, np.ascontiguousarray(map),
+    cfunc(n_map, nf_in, nf_out, np.ascontiguousarray(map, dtype=np.float64),
           np.ascontiguousarray(freq_in), np.ascontiguousarray(freq_out),
           nmap_is_all,
           np.ascontiguousarray(out))

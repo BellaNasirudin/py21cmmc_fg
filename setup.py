@@ -35,7 +35,7 @@ def find_version(*file_paths):
 
 setup(
     name='py21cmmc_fg',
-    version=find_version('py21cmmc_fg', "__init__.py"),
+    version=find_version("src",'py21cmmc_fg', "__init__.py"),
     license='MIT license',
     description='A py21cmmc plugin which provides sky and instrumental foregrounds, along with a power-spectrum estimator.',
     long_description='%s\n%s' % (
@@ -45,8 +45,9 @@ setup(
     author='Bella Nasirudin',
     author_email='a.nasirudin@postgrad.curtin.edu.au',
     url='https://github.com/BellaNasirudin/py21cmmc_fg',
-    packages=find_packages(),
-    #py_modules=[splitext(basename(path))[0] for path in glob('src/*.py')],
+    packages=find_packages('src'),
+    package_dir={'': 'src'},
+    py_modules=[splitext(basename(path))[0] for path in glob('src/*.py')],
     include_package_data=True,
     zip_safe=False,
     classifiers=[
@@ -67,14 +68,16 @@ setup(
     ],
     install_requires=[
         'numpy',
-        'py21cmmc',
         'powerbox==0.6.0',
+        '21cmfast',
+        'cosmoHammer',
+        'h5py>=2.8.0',
     ],
     package_data={"py21cmmc_fg":['data/*']},
     ext_modules=[
         Extension(
             'py21cmmc_fg.c_routines',
-            ['py21cmmc_fg/routines.c'],
+            ['src/py21cmmc_fg/routines.c'],
             extra_compile_args = ['-Ofast']
         ),
 

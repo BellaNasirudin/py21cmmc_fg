@@ -44,7 +44,7 @@ class MyPool(multiprocessing.pool.Pool):
         kwargs['context'] = NoDaemonContext()
         super(MyPool, self).__init__(*args, **kwargs)
 
-logger = logging.getLogger("21CMMC")
+logger = logging.getLogger("21cmFAST")
 
 
 class LikelihoodInstrumental2D(LikelihoodBaseFile):
