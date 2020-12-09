@@ -462,14 +462,16 @@ class CoreInstrumental(CoreBase):
             # Find all the possible combination of tile displacement
             # baselines is a dim2 array of x and y displacements.
             uv = np.zeros((int(len(ant_pos)*(len(ant_pos)-1)/2),3))
-            uv[:,:2] = self.get_baselines(ant_pos[:, 1], ant_pos[:, 2])
+
+            # assuming the final column is the z displacement, read the second and third columns from the back
+            uv[:,:2] = self.get_baselines(ant_pos[:, -3], ant_pos[:, -2])
 
             if ERS == False:
                 self._baselines = uv[:,:2] * un.m
             else:
                 logger.info("Doing things with earth rotation")
                 self._baselines = self.get_baselines_rotation(uv, tot_daily_obs_time, int_time, declination, RA_pointing) * un.m
-            
+
             if self.max_bl_length:
                 self._baselines = self._baselines[
                     self._baselines[:, 0].value ** 2 + self._baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
