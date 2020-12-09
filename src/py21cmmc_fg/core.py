@@ -354,7 +354,8 @@ class CoreInstrumental(CoreBase):
 
     def __init__(self, *, antenna_posfile, freq_min, freq_max, nfreq, tile_diameter=4.0, max_bl_length=None,
                  integration_time=120, Tsys=240, effective_collecting_area=21.0, n_obs = 1, nparallel = 1,
-                 sky_extent=3, n_cells=300, add_beam=True, padding_size = 3, ERS = True,
+                 sky_extent=3, n_cells=300, add_beam=True, padding_size = 3, ERS = True, tot_daily_obs_time = 6,
+                 int_time = 600, declination=-26., RA_pointing = 0,
                  **kwargs):
         """
         Parameters
@@ -429,8 +430,13 @@ class CoreInstrumental(CoreBase):
         self.padding_size = padding_size
         self.n_obs = n_obs
         self.nparallel = nparallel
-
         self.effective_collecting_area = effective_collecting_area * un.m ** 2
+
+        #not sure if these should be attributed to self at this point
+        tot_daily_obs_time = tot_daily_obs_time
+        int_time = int_time
+        declination = declination
+        RA_pointing = RA_pointing
 
         if self.effective_collecting_area > self.tile_diameter ** 2:
             warnings.warn("The effective collecting area (%s) is greater than the tile diameter squared!")
@@ -462,8 +468,8 @@ class CoreInstrumental(CoreBase):
                 self._baselines = uv[:,:2] * un.m
             else:
                 logger.info("Doing things with earth rotation")
-                self._baselines = self.get_baselines_rotation(uv) * un.m
-
+                self._baselines = self.get_baselines_rotation(uv, tot_daily_obs_time, int_time, declination, RA_pointing) * un.m
+            
             if self.max_bl_length:
                 self._baselines = self._baselines[
                     self._baselines[:, 0].value ** 2 + self._baselines[:, 1].value ** 2 <= self.max_bl_length ** 2]
@@ -646,7 +652,7 @@ class CoreInstrumental(CoreBase):
 
         # Find beam attenuation
         if self.add_beam is True:
-            lightcone *= self.beam(self.instrumental_frequencies)
+            lightcone *= self.gaussian_beam(self.instrumental_frequencies)
         
         if self.padding_size is not None:
             lightcone = self.padding_image(lightcone, self.sky_size, self.padding_size * self.sky_size)
@@ -713,7 +719,7 @@ class CoreInstrumental(CoreBase):
         sig = self.sigma(frequencies)
         return np.pi * sig ** 2
 
-    def beam(self, frequencies, min_attenuation = 5e-7):
+    def gaussian_beam(self, frequencies, min_attenuation = 5e-7):
         """
         Generate a frequency-dependent Gaussian beam attenuation across the sky per frequency.
 
@@ -983,7 +989,7 @@ class CoreInstrumental(CoreBase):
         return np.array([Xsep.flatten()[np.logical_not(zeros)], Ysep.flatten()[np.logical_not(zeros)]]).T
 
 
-    def get_baselines_rotation(self, pos_file, tot_daily_obs_time = 6, int_time = 600):
+    def get_baselines_rotation(self, pos_file, tot_daily_obs_time = 6, int_time = 600, declination=-26., RA_pointing = 0):
         """
         From a set of antenna positions, determine the non-autocorrelated baselines with Earth rotation synthesis.
 
@@ -1008,16 +1014,18 @@ class CoreInstrumental(CoreBase):
         new_baselines = np.zeros((slice_num*len(pos_file), 3))
 
         for ii in range(slice_num):
-            new_baselines[ii*len(pos_file):(ii+1)*len(pos_file),:] = self.earth_rotation_synthesis(pos_file, ii, int_time)
+            new_baselines[ii*len(pos_file):(ii+1)*len(pos_file),:] = self.earth_rotation_synthesis(pos_file, ii, int_time, declination=declination, RA_pointing = RA_pointing)
 
         return new_baselines[:,:2] # only return the x,y part
 
     @profile
     @staticmethod
-    def earth_rotation_synthesis(Nbase, slice_num, int_time, declination=-30.):
+    def earth_rotation_synthesis(Nbase, slice_num, int_time, declination=-26., RA_pointing = 0):
         """
         The rotation of the earth over the observation times makes changes the part of the 
-        sky measured by each antenna. This is based on Tools21cm by Giri but need to be checked.
+        sky measured by each antenna.
+        Based on https://science.nrao.edu/science/meetings/2016/15th-synthesis-imaging-workshop/SISS15Advanced.pdf
+
         Parameters
         ----------
         Nbase       : ndarray
@@ -1025,26 +1033,35 @@ class CoreInstrumental(CoreBase):
         slice_num   : int
             The number of the observed slice after each of the integration time.
         int_time    : float
-            The integration time is the time after which the signal is recorded (in seconds).
+            The time after which the signal is recorded (in seconds).
         declination : float
-            The angle of declination refers to the lattitute where telescope is located 
-            (in degres). Default: -30
-        
+            Refers to the lattitute where telescope is located 
+            (in degrees). Default: -27
+        RA_pointing : float
+            Refers to the RA of the observation
+            (in hours!). Default: 0
+
         Returns
         -------
         new_Nbase   : ndarray
             It is the new Nbase calculated for the rotated antenna configurations.
         """
 
-        p     = np.pi/180.
-        delta = p*declination
-        k     = slice_num
-        HA    =-15.0*p*(k-1)*int_time/(3600.0) - np.pi/180.0*90.0 + np.pi/180.0*360.0
+        # change everything in degree to radian because numpy does things in radian
+        deg_to_rad = np.pi / 180.
+
+        delta = deg_to_rad * declination
+
+        one_hour = 15.0 * deg_to_rad # the rotation in radian after an hour
+
+        # multiply by the total observation time and number of slices
+        # also offset by the RA pointing
+        HA    =  one_hour * (slice_num - 1) * int_time / (60 * 60) + RA_pointing * 15 * deg_to_rad
         
         new_Nbase = np.zeros(Nbase.shape)
-        new_Nbase[:,0] = np.sin(HA)*Nbase[:,0] + np.cos(HA)*Nbase[:,1]
-        new_Nbase[:,1] = -1.0*np.sin(delta)*np.cos(HA)*Nbase[:,0] + np.sin(delta)*np.sin(HA)*Nbase[:,1] + np.cos(delta)*Nbase[:,2]
-        new_Nbase[:,2] = np.cos(delta)*np.cos(HA)*Nbase[:,0] - np.cos(delta)*np.sin(HA)*Nbase[:,1] + np.sin(delta)*Nbase[:,2]
+        new_Nbase[:,0] = np.sin(HA) * Nbase[:,0] + np.cos(HA) * Nbase[:,1]
+        new_Nbase[:,1] = -1.0 * np.sin(delta) * np.cos(HA) * Nbase[:,0] + np.sin(delta) * np.sin(HA) * Nbase[:,1] + np.cos(delta) * Nbase[:,2]
+        new_Nbase[:,2] = np.cos(delta) * np.cos(HA) * Nbase[:,0] - np.cos(delta) * np.sin(HA) * Nbase[:,1] + np.sin(delta) * Nbase[:,2]
 
         return new_Nbase
 
