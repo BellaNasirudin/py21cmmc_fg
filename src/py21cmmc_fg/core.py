@@ -432,9 +432,11 @@ class CoreInstrumental(CoreBase):
         self.nparallel = nparallel
         self.effective_collecting_area = effective_collecting_area * un.m ** 2
 
+        self.tot_daily_obs_time = tot_daily_obs_time
+        self.int_time = int_time
+        self.ERS = ERS
+
         #not sure if these should be attributed to self at this point
-        tot_daily_obs_time = tot_daily_obs_time
-        int_time = int_time
         declination = declination
         RA_pointing = RA_pointing
 
@@ -466,7 +468,7 @@ class CoreInstrumental(CoreBase):
             # assuming the final column is the z displacement, read the second and third columns from the back
             uv[:,:2] = self.get_baselines(ant_pos[:, -3], ant_pos[:, -2])
 
-            if ERS == False:
+            if self.ERS == False:
                 self._baselines = uv[:,:2] * un.m
             else:
                 logger.info("Doing things with earth rotation")
@@ -501,6 +503,29 @@ class CoreInstrumental(CoreBase):
 #    def sky_coords(self):
 #        """Grid-coordinates of the (stitched/coarsened) simulation in lm units"""
 #        return np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
+
+    def theta_phi(self):
+        '''
+        Convert lm (unitless) to theta phi (radian) by solving for:
+
+        l = sin(theta) * cos(phi)
+        m = sin(theta) * sin(phi)
+
+        '''
+        sky_coords = np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
+
+        l, m = np.meshgrid(np.sin(sky_coords), np.sin(sky_coords), indexing='ij')
+
+        # slove for phi first so we can plug-in
+        phi = np.arctan(m / l)
+
+        theta = np.arcsin(l / np.cos(phi))
+
+        #phi is undefined for theta = 0 so need to correct for this
+        index = np.where(theta == 0)
+        phi[index] = 0
+
+        return theta, phi
 
     @cached_property
     def cell_size(self):
@@ -602,15 +627,15 @@ class CoreInstrumental(CoreBase):
 
         if (np.max(box)==np.min(box)): #both EoR signal and foregrounds are zero
             vis = np.zeros((len(self.baselines), len(self.instrumental_frequencies)), dtype=np.complex128)
+        elif self.ERS == True:
+            vis = self.add_instrument_rotation(box)
         else:
             vis = self.add_instrument(box)
 
         ctx.add("visibilities", vis)
         np.save("trueparams-160MHz_vis.npy", vis)
         
-        # These aren't strictly necessary
-        ctx.add("baselines", self.baselines)
-        ctx.add("frequencies", self.instrumental_frequencies)
+        # This isn't strictly necessary
         ctx.add("baselines_type", self.antenna_posfile)
 
     @staticmethod
@@ -675,29 +700,49 @@ class CoreInstrumental(CoreBase):
 
         return visibilities
 
-#    @cached_property
-#    def uv_grid(self):
-#        """The grid of uv along one side"""
-#        return fftfreq(N=self.n_cells, d=self.cell_size, b=2 * np.pi)
+    @profile
+    def add_instrument_rotation(self, lightcone):
+
+        all_visibilities = np.zeros((len(self.baselines), len(self.instrumental_frequencies)), dtype=np.complex128)
+
+        L = int(len(self.baselines) / self.number_of_snapshots)
+
+        for ii in range(self.number_of_snapshots):
+
+            # Find beam attenuation
+            if self.add_beam is True:
+                lightcone_new = lightcone * self.gaussian_beam(self.instrumental_frequencies)
+            else:
+                lightcone_new = lightcone
+            
+            # Fourier Transform over the (l,m) dimension 
+            if self.padding_size is not None:
+                # TODO: padding needs to be customised for each pointing!!
+                lightcone_new = self.padding_image(lightcone_new, self.sky_size, self.padding_size * self.sky_size)
+                lightcone_new, uv = self.image_to_uv(lightcone_new, self.padding_size * self.sky_size)
+            else:
+                # Fourier transform image plane to UV plane.
+                lightcone_new, uv = self.image_to_uv(lightcone_new, self.sky_size)
+            
+            # baselines sampling
+            if self.antenna_posfile != "grid_centres":
+                if(self.nparallel==1):
+                    all_visibilities[ii*L:(ii+1)*L] = self.sample_onto_baselines(lightcone_new, uv, self.baselines[ii*L:(ii+1)*L], self.instrumental_frequencies)
+                else:
+                    all_visibilitie[ii*L:(ii+1)*L] = self.sample_onto_baselines_parallel(lightcone_new, uv, self.baselines[ii*L:(ii+1)*L], self.instrumental_frequencies)
+            else:
+                all_visibilities = lightcone
+                self.baselines = uv[1]
+               
+        return all_visibilities
 
     @cached_property
     def baselines(self):
         """The baselines of the array, in m"""
-        #        if self._baselines is None:
-        #            baselines = np.zeros((len(self.uv_grid) ** 2, 2))
-        #            U, V = np.meshgrid(self.uv_grid, self.uv_grid)
-        #            baselines[:, 0] = U.flatten() * (const.c / np.min(self.instrumental_frequencies))
-        #            baselines[:, 1] = V.flatten() * (const.c / np.min(self.instrumental_frequencies))
-        #            baselines = baselines * un.m
-        #
-        #            # Remove auto-correlations
-        #            #baselines = baselines[baselines[:, 0] ** 2 + baselines[:, 1] ** 2 > 1.0 * un.m ** 2]
-        #            return baselines
-        #        else:
-        if self._baselines is not None:
-            return self._baselines.value
+        if self._baselines is None:
+            return None
         else:
-            return self._baselines
+            return self._baselines.value
 
     def sigma(self, frequencies):
         "The Gaussian beam width at each frequency"
@@ -990,6 +1035,9 @@ class CoreInstrumental(CoreBase):
 
         return np.array([Xsep.flatten()[np.logical_not(zeros)], Ysep.flatten()[np.logical_not(zeros)]]).T
 
+    @cached_property
+    def number_of_snapshots(self):
+        return int(self.tot_daily_obs_time * 60 * 60 / self.int_time)
 
     def get_baselines_rotation(self, pos_file, tot_daily_obs_time = 6, int_time = 600, declination=-26., RA_pointing = 0):
         """
@@ -1011,11 +1059,9 @@ class CoreInstrumental(CoreBase):
             Each row is the (x,y) co-ordinate of a baseline, in the same units as x,y.
         """
 
-        slice_num = int(tot_daily_obs_time * 60 * 60 / int_time)
+        new_baselines = np.zeros((self.number_of_snapshots*len(pos_file), 3))
 
-        new_baselines = np.zeros((slice_num*len(pos_file), 3))
-
-        for ii in range(slice_num):
+        for ii in range(self.number_of_snapshots):
             new_baselines[ii*len(pos_file):(ii+1)*len(pos_file),:] = self.earth_rotation_synthesis(pos_file, ii, int_time, declination=declination, RA_pointing = RA_pointing)
 
         return new_baselines[:,:2] # only return the x,y part
