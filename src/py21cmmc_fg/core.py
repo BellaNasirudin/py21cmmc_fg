@@ -316,7 +316,6 @@ class CoreDiffuseForegrounds(ForegroundsBase):
 
         .. math:: \left(\frac{2k_B}{\lambda^2}\right)^2 \Omega (eta \bar{T}_B) \left(\frac{u}{u_0}\right)^{\rho} \left(\frac{\nu}{100 {\rm MHz}}\right)^{\kappa}
         """
-        # raise NotImplementedError("This is not working atm.")
 
         logger.info("Populating diffuse foregrounds...")
         t1 = time.time()
@@ -435,10 +434,10 @@ class CoreInstrumental(CoreBase):
         self.tot_daily_obs_time = tot_daily_obs_time
         self.int_time = int_time
         self.ERS = ERS
-
-        #not sure if these should be attributed to self at this point
+        self.RA_pointing = RA_pointing
+        #not sure if this should be attributed to self at this point
         declination = declination
-        RA_pointing = RA_pointing
+
 
         if self.effective_collecting_area > self.tile_diameter ** 2:
             warnings.warn("The effective collecting area (%s) is greater than the tile diameter squared!")
@@ -472,7 +471,7 @@ class CoreInstrumental(CoreBase):
                 self._baselines = uv[:,:2] * un.m
             else:
                 logger.info("Doing things with earth rotation")
-                self._baselines = self.get_baselines_rotation(uv, tot_daily_obs_time, int_time, declination, RA_pointing) * un.m
+                self._baselines = self.get_baselines_rotation(uv, self.tot_daily_obs_time, self.int_time, declination, self.RA_pointing) * un.m
 
             if self.max_bl_length:
                 self._baselines = self._baselines[
@@ -496,15 +495,26 @@ class CoreInstrumental(CoreBase):
 
     @property
     def sky_size(self):
-        "The sky size in lm co-ordinates. This is the size *all the way across*"
-        return self._sky_extent #* self._sky_extent * np.max(self.sigma(self.instrumental_frequencies))
+        "The sky size in lm co-ordinates. This is the size *for the simulation box only*"
+        return self._sky_extent 
 
 #    @cached_property
 #    def sky_coords(self):
 #        """Grid-coordinates of the (stitched/coarsened) simulation in lm units"""
 #        return np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
 
-    def theta_phi(self):
+    def theta_phi_to_lm(self, theta, phi):
+        '''
+        Convert theta phi (radian) to lm (unitless)
+
+        '''
+
+        l = np.sin(theta) * np.cos(phi)
+        m = np.sin(theta) * np.sin(phi)
+
+        return l, m
+
+    def lm_to_theta_phi(self, l, m):
         '''
         Convert lm (unitless) to theta phi (radian) by solving for:
 
@@ -512,9 +522,9 @@ class CoreInstrumental(CoreBase):
         m = sin(theta) * sin(phi)
 
         '''
-        sky_coords = np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
+        # sky_coords = np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
 
-        l, m = np.meshgrid(np.sin(sky_coords), np.sin(sky_coords), indexing='ij')
+        # l, m = np.meshgrid(np.sin(sky_coords), np.sin(sky_coords), indexing='ij')
 
         # slove for phi first so we can plug-in
         phi = np.arctan(m / l)
@@ -645,9 +655,10 @@ class CoreInstrumental(CoreBase):
         vector[-pad_width[1]:] = pad_value
         return vector
 
-    def padding_image(self, image_cube, sky_size, big_sky_size):
+    def padding_image(self, image_cube, sky_size, big_sky_size, ERS=False, time_passed = 0):
         """
-        Generate a spatial padding in image cube.
+        Generate a spatial padding in image cube. If ERS is present, assume that we
+        start observing 45 degrees from horizon.
 
         Parameters
         ----------
@@ -666,11 +677,30 @@ class CoreInstrumental(CoreBase):
             The sky padded with zeros along the l,m plane.
         """
         sky = []
-        N_pad = int((big_sky_size - sky_size)/(2.0 * sky_size) * np.shape(image_cube)[0])
-        for jj in range(np.shape(image_cube)[-1]):
-            sky.append(np.pad(image_cube[:,:,jj], N_pad, self.pad_with))
 
-        sky = np.array(sky).T
+        if ERS is False:
+            N_pad = int((big_sky_size - sky_size) / (2.0 * sky_size) * np.shape(image_cube)[0])
+
+            for jj in range(np.shape(image_cube)[-1]):
+                sky.append(np.pad(image_cube[:,:,jj], N_pad, self.pad_with))
+
+            sky = np.array(sky).T
+
+        else:
+
+            theta = 90 * np.pi / 180
+            phi = (45 + time_passed / (60 * 60) * 15) * np.pi / 180
+
+            l, m = self.theta_phi_to_lm(theta, phi)
+
+            small_pad = int((big_sky_size / 2 - l) * np.shape(image_cube)[0])
+
+            large_pad = np.shape(image_cube)[0] * int(big_sky_size / sky_size) - small_pad - np.shape(image_cube)[0]
+
+            for jj in range(np.shape(image_cube)[-1]):
+                sky.append(np.pad(image_cube[:,:,0], [small_pad, large_pad], self.pad_with))
+                
+            sky = np.array(sky).T
 
         return sky
 
@@ -718,12 +748,13 @@ class CoreInstrumental(CoreBase):
             # Fourier Transform over the (l,m) dimension 
             if self.padding_size is not None:
                 # TODO: padding needs to be customised for each pointing!!
-                lightcone_new = self.padding_image(lightcone_new, self.sky_size, self.padding_size * self.sky_size)
+                lightcone_new = self.padding_image(lightcone_new, self.sky_size, self.padding_size * self.sky_size, self.ERS, self.int_time * ii)
+
                 lightcone_new, uv = self.image_to_uv(lightcone_new, self.padding_size * self.sky_size)
             else:
                 # Fourier transform image plane to UV plane.
                 lightcone_new, uv = self.image_to_uv(lightcone_new, self.sky_size)
-            
+
             # baselines sampling
             if self.antenna_posfile != "grid_centres":
                 if(self.nparallel==1):
@@ -733,7 +764,7 @@ class CoreInstrumental(CoreBase):
             else:
                 all_visibilities = lightcone
                 self.baselines = uv[1]
-               
+          
         return all_visibilities
 
     @cached_property

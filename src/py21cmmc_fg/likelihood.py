@@ -6,8 +6,9 @@ Created on Fri Apr 20 16:54:22 2018
 
 import logging
 import multiprocessing
-from functools import partial
+from multiprocessing import pool
 
+from functools import partial
 import numpy as np
 from astropy import constants as const
 from astropy.cosmology import Planck15 as cosmo
@@ -39,7 +40,7 @@ class NoDaemonContext(type(multiprocessing.get_context())):
 
 # We sub-class multiprocessing.pool.Pool instead of multiprocessing.Pool
 # because the latter is only a wrapper function, not a proper class.
-class MyPool(multiprocessing.pool.Pool):
+class MyPool(pool.Pool):
     def __init__(self, *args, **kwargs):
         kwargs['context'] = NoDaemonContext()
         super(MyPool, self).__init__(*args, **kwargs)
