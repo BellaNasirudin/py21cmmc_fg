@@ -522,11 +522,7 @@ class CoreInstrumental(CoreBase):
         m = sin(theta) * sin(phi)
 
         '''
-        # sky_coords = np.linspace(-self.sky_size / 2, self.sky_size / 2, self.n_cells)
-
-        # l, m = np.meshgrid(np.sin(sky_coords), np.sin(sky_coords), indexing='ij')
-
-        # slove for phi first so we can plug-in
+        # solve for phi first so we can plug-in
         phi = np.arctan(m / l)
 
         theta = np.arcsin(l / np.cos(phi))
@@ -655,7 +651,7 @@ class CoreInstrumental(CoreBase):
         vector[-pad_width[1]:] = pad_value
         return vector
 
-    def padding_image(self, image_cube, sky_size, big_sky_size, ERS=False, time_passed = 0):
+    def padding_image(self, image_cube, sky_size, big_sky_size, ERS=False, time_passed = 0, zenith_angle=45, azimuth_angle=30):
         """
         Generate a spatial padding in image cube. If ERS is present, assume that we
         start observing 45 degrees from horizon.
@@ -688,8 +684,8 @@ class CoreInstrumental(CoreBase):
 
         else:
 
-            theta = 90 * np.pi / 180
-            phi = (45 + time_passed / (60 * 60) * 15) * np.pi / 180
+            phi = azimuth_angle * np.pi / 180
+            theta = (zenith_angle - time_passed / (60 * 60) * 15) * np.pi / 180
 
             l, m = self.theta_phi_to_lm(theta, phi)
 
@@ -764,7 +760,7 @@ class CoreInstrumental(CoreBase):
             else:
                 all_visibilities = lightcone
                 self.baselines = uv[1]
-          
+      
         return all_visibilities
 
     @cached_property
