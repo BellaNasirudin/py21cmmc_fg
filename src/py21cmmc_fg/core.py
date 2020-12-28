@@ -651,7 +651,7 @@ class CoreInstrumental(CoreBase):
         vector[-pad_width[1]:] = pad_value
         return vector
 
-    def padding_image(self, image_cube, sky_size, big_sky_size, ERS=False, time_passed = 0, zenith_angle=45, azimuth_angle=30):
+    def padding_image(self, image_cube, sky_size, big_sky_size, time_passed = 0, zenith_angle=45, azimuth_angle=30):
         """
         Generate a spatial padding in image cube. If ERS is present, assume that we
         start observing 45 degrees from horizon.
@@ -674,29 +674,12 @@ class CoreInstrumental(CoreBase):
         """
         sky = []
 
-        if ERS is False:
-            N_pad = int((big_sky_size - sky_size) / (2.0 * sky_size) * np.shape(image_cube)[0])
+        N_pad = int((big_sky_size - sky_size) / (2.0 * sky_size) * np.shape(image_cube)[0])
 
-            for jj in range(np.shape(image_cube)[-1]):
-                sky.append(np.pad(image_cube[:,:,jj], N_pad, self.pad_with))
+        for jj in range(np.shape(image_cube)[-1]):
+            sky.append(np.pad(image_cube[:,:,jj], N_pad, self.pad_with))
 
-            sky = np.array(sky).T
-
-        else:
-
-            phi = azimuth_angle * np.pi / 180
-            theta = (zenith_angle - time_passed / (60 * 60) * 15) * np.pi / 180
-
-            l, m = self.theta_phi_to_lm(theta, phi)
-
-            small_pad = int((big_sky_size / 2 - l) * np.shape(image_cube)[0])
-
-            large_pad = np.shape(image_cube)[0] * int(big_sky_size / sky_size) - small_pad - np.shape(image_cube)[0]
-
-            for jj in range(np.shape(image_cube)[-1]):
-                sky.append(np.pad(image_cube[:,:,0], [small_pad, large_pad], self.pad_with))
-                
-            sky = np.array(sky).T
+        sky = np.array(sky).T
 
         return sky
 
@@ -743,8 +726,7 @@ class CoreInstrumental(CoreBase):
             
             # Fourier Transform over the (l,m) dimension 
             if self.padding_size is not None:
-                # TODO: padding needs to be customised for each pointing!!
-                lightcone_new = self.padding_image(lightcone_new, self.sky_size, self.padding_size * self.sky_size, self.ERS, self.int_time * ii)
+                lightcone_new = self.padding_image(lightcone_new, self.sky_size, self.padding_size * self.sky_size, self.int_time * ii)
 
                 lightcone_new, uv = self.image_to_uv(lightcone_new, self.padding_size * self.sky_size)
             else:
@@ -1068,7 +1050,8 @@ class CoreInstrumental(CoreBase):
 
     def get_baselines_rotation(self, pos_file, tot_daily_obs_time = 6, int_time = 600, declination=-26., RA_pointing = 0):
         """
-        From a set of antenna positions, determine the non-autocorrelated baselines with Earth rotation synthesis.
+        From a set of antenna positions, determine the non-autocorrelated baselines with Earth rotation synthesis, assuming
+        a flat sky.
 
         Parameters
         ----------
@@ -1086,12 +1069,12 @@ class CoreInstrumental(CoreBase):
             Each row is the (x,y) co-ordinate of a baseline, in the same units as x,y.
         """
 
-        new_baselines = np.zeros((self.number_of_snapshots*len(pos_file), 3))
+        new_baselines = np.zeros((self.number_of_snapshots*len(pos_file), 2))
 
         for ii in range(self.number_of_snapshots):
             new_baselines[ii*len(pos_file):(ii+1)*len(pos_file),:] = self.earth_rotation_synthesis(pos_file, ii, int_time, declination=declination, RA_pointing = RA_pointing)
 
-        return new_baselines[:,:2] # only return the x,y part
+        return new_baselines # only return the x,y part
 
     @profile
     @staticmethod
@@ -1133,10 +1116,9 @@ class CoreInstrumental(CoreBase):
         # also offset by the RA pointing
         HA    =  one_hour * (slice_num - 1) * int_time / (60 * 60) + RA_pointing * 15 * deg_to_rad
         
-        new_Nbase = np.zeros(Nbase.shape)
+        new_Nbase = np.zeros((len(Nbase),2))
         new_Nbase[:,0] = np.sin(HA) * Nbase[:,0] + np.cos(HA) * Nbase[:,1]
-        new_Nbase[:,1] = -1.0 * np.sin(delta) * np.cos(HA) * Nbase[:,0] + np.sin(delta) * np.sin(HA) * Nbase[:,1] + np.cos(delta) * Nbase[:,2]
-        new_Nbase[:,2] = np.cos(delta) * np.cos(HA) * Nbase[:,0] - np.cos(delta) * np.sin(HA) * Nbase[:,1] + np.sin(delta) * Nbase[:,2]
+        new_Nbase[:,1] = -1.0 * np.sin(delta) * np.cos(HA) * Nbase[:,0] + np.sin(delta) * np.sin(HA) * Nbase[:,1]
 
         return new_Nbase
 
