@@ -72,6 +72,16 @@ setup(
         '21cmfast',
         'cosmoHammer',
         'h5py>=2.8.0',
+        'emcee<3',
+        'click',
+        #'tqdm',
+        'numpy',
+        'pyyaml',
+        'cosmoHammer',
+        'cffi>=1.0',
+        'scipy',
+        'astropy>=2.0',
+        'cached_property'
     ],
     package_data={"py21cmmc_fg":['data/*']},
     ext_modules=[
