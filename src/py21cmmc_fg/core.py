@@ -9,7 +9,7 @@ Foreground core for 21cmmc
 """
 import logging
 from os import path
-
+from astropy.io import fits
 import numpy as np
 from astropy import constants as const
 from astropy import units as un
@@ -20,6 +20,7 @@ from scipy.integrate import quad
 from scipy.interpolate import RegularGridInterpolator, RectBivariateSpline
 import multiprocessing as mp
 import ctypes
+from astropy.io import fits
 
 logger = logging.getLogger("21cmFAST")
 
@@ -651,7 +652,7 @@ class CoreInstrumental(CoreBase):
         vector[-pad_width[1]:] = pad_value
         return vector
 
-    def padding_image(self, image_cube, sky_size, big_sky_size, time_passed = 0, zenith_angle=45, azimuth_angle=30):
+    def padding_image(self, image_cube, sky_size, big_sky_size):
         """
         Generate a spatial padding in image cube. If ERS is present, assume that we
         start observing 45 degrees from horizon.
@@ -720,8 +721,9 @@ class CoreInstrumental(CoreBase):
 
             # Find beam attenuation
             if self.add_beam is True:
+
                 lightcone_new = lightcone * self.gaussian_beam(self.instrumental_frequencies)
-            else:
+            elif self.add_beam is False:
                 lightcone_new = lightcone
             
             # Fourier Transform over the (l,m) dimension 
@@ -801,7 +803,7 @@ class CoreInstrumental(CoreBase):
         L, M = np.meshgrid(np.sin(sky_coords), np.sin(sky_coords), indexing='ij')
 
         attenuation = np.exp(
-            np.outer(-(L ** 2 + M ** 2), 1. / (2 * self.sigma(frequencies) ** 2)).reshape(
+            np.outer(-(L ** 2 + M ** 2), 1. / (self.sigma(frequencies) ** 2)).reshape(
                 (self.n_cells, self.n_cells, len(frequencies))))
         
         attenuation[attenuation<min_attenuation] = 0
